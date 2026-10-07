@@ -1,0 +1,7 @@
+streamlit
+copernicusmarine
+numpy
+pandas
+pydeck
+xarray
+dask
