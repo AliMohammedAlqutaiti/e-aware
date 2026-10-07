@@ -9,8 +9,8 @@ st.set_page_config(
 
 st.title("🐟 E-AWARE Copernicus Connection Test")
 
-username = st.secrets["up2504503@myport.ac.uk"]
-password = st.secrets["AlI:97301131"]
+username = st.secrets["COPERNICUS_USERNAME"]
+password = st.secrets["COPERNICUS_PASSWORD"]
 
 os.environ["COPERNICUSMARINE_SERVICE_USERNAME"] = username
 os.environ["COPERNICUSMARINE_SERVICE_PASSWORD"] = password
