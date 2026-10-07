@@ -10,7 +10,7 @@ import streamlit as st
 
 
 # ============================================================
-# PAGE
+# PAGE SETTINGS
 # ============================================================
 
 st.set_page_config(
@@ -25,13 +25,13 @@ st.caption("El Niño Adaptive Fisheries Intelligence — MVP V1")
 st.info(
     "E-AWARE estimates suitable anchoveta habitat. "
     "It does not show the exact location or swimming direction "
-    "of fish schools."
+    "of individual fish schools."
 )
 
 
 # ============================================================
 # STUDY AREA
-# Costanera corridor / Lobitos marine area
+# Costanera corridor / northern Peru
 # ============================================================
 
 MIN_LON = -81.50
@@ -45,25 +45,25 @@ COMMUNITIES = pd.DataFrame(
     [
         {
             "name": "Lobitos",
-            "lat": -4.45279,
-            "lon": -81.27771
+            "lat": -4.4567,
+            "lon": -81.2849
         },
         {
             "name": "Siches",
-            "lat": -4.48907,
-            "lon": -81.26827
+            "lat": -4.4890,
+            "lon": -81.2680
         },
         {
             "name": "Piedritas",
-            "lat": -4.51905,
-            "lon": -81.26336
+            "lat": -4.5190,
+            "lon": -81.2630
         }
     ]
 )
 
 
 # ============================================================
-# COPERNICUS DATASET IDs
+# COPERNICUS DATASETS
 # ============================================================
 
 TEMPERATURE_DATASET = (
@@ -80,7 +80,7 @@ SST_ANOMALY_DATASET = (
 
 
 # ============================================================
-# COPERNICUS LOGIN
+# COPERNICUS CREDENTIALS
 # ============================================================
 
 def configure_copernicus():
@@ -98,16 +98,13 @@ def configure_copernicus():
     if not username or not password:
 
         raise RuntimeError(
-            "Copernicus credentials are missing. "
-            "Add COPERNICUS_USERNAME and "
-            "COPERNICUS_PASSWORD in Streamlit Secrets."
+            "Copernicus credentials are missing from "
+            "Streamlit Secrets."
         )
-
 
     os.environ[
         "COPERNICUSMARINE_SERVICE_USERNAME"
     ] = username
-
 
     os.environ[
         "COPERNICUSMARINE_SERVICE_PASSWORD"
@@ -115,133 +112,82 @@ def configure_copernicus():
 
 
 # ============================================================
-# CONVERT COPERNICUS FIELD TO DATAFRAME
+# CLEAN COPERNICUS DATAFRAME
 # ============================================================
 
-def field_to_dataframe(
-    ds,
-    variable,
-    output_name
+def prepare_dataframe(
+    dataframe,
+    original_variable,
+    new_variable
 ):
 
-    da = ds[
-        variable
-    ]
+    df = dataframe.reset_index().copy()
 
-
-    # Surface layer only
-    if "depth" in da.dims:
-
-        da = da.isel(
-            depth=0
-        )
-
-
-    da = da.load()
-
-
-    df = (
-        da
-        .to_dataframe(
-            name=output_name
-        )
-        .reset_index()
-    )
-
-
-    rename_map = {}
-
+    rename_map = {
+        original_variable: new_variable
+    }
 
     for column in df.columns:
 
-        lower = str(
-            column
-        ).lower()
+        name = str(column).lower()
 
+        if name == "latitude":
+            rename_map[column] = "lat"
 
-        if lower in (
-            "latitude",
-            "lat"
-        ):
-
-            rename_map[
-                column
-            ] = "lat"
-
-
-        elif lower in (
-            "longitude",
-            "lon"
-        ):
-
-            rename_map[
-                column
-            ] = "lon"
-
+        elif name == "longitude":
+            rename_map[column] = "lon"
 
     df = df.rename(
         columns=rename_map
     )
 
 
-    if (
-        "lat" not in df.columns
-        or
-        "lon" not in df.columns
-    ):
+    required = [
+        "time",
+        "lat",
+        "lon",
+        new_variable
+    ]
+
+    missing = [
+        column
+        for column in required
+        if column not in df.columns
+    ]
+
+    if missing:
 
         raise RuntimeError(
-            f"Could not find latitude/longitude for {output_name}."
-        )
-
-
-    if "time" not in df.columns:
-
-        raise RuntimeError(
-            f"Could not find time coordinate for {output_name}."
+            f"Missing columns from {new_variable}: {missing}"
         )
 
 
     df = df.dropna(
         subset=[
-            output_name
+            new_variable
         ]
     ).copy()
 
 
-    df[
-        "date"
-    ] = (
+    df["date"] = (
         pd.to_datetime(
-            df[
-                "time"
-            ]
+            df["time"]
         )
         .dt.date
     )
 
 
-    df[
-        "lat_key"
-    ] = (
-        df[
-            "lat"
-        ]
-        .round(
-            3
-        )
+    df["lat_key"] = (
+        df["lat"]
+        .astype(float)
+        .round(3)
     )
 
 
-    df[
-        "lon_key"
-    ] = (
-        df[
-            "lon"
-        ]
-        .round(
-            3
-        )
+    df["lon_key"] = (
+        df["lon"]
+        .astype(float)
+        .round(3)
     )
 
 
@@ -252,44 +198,127 @@ def field_to_dataframe(
             "lon",
             "lat_key",
             "lon_key",
-            output_name
+            new_variable
         ]
     ]
 
 
 # ============================================================
-# GET COPERNICUS DATA
+# TEMPERATURE
 # ============================================================
 
-@st.cache_data(
-    ttl=1800,
-    show_spinner=False
-)
-def get_ocean_data(
+@st.cache_data(ttl=1800)
+def load_temperature(
     start_date,
-    days_ahead=3
+    end_date
 ):
 
     configure_copernicus()
 
+    raw = copernicusmarine.read_dataframe(
 
-    end_date = (
-        start_date
-        +
-        timedelta(
-            days=days_ahead
+        dataset_id=TEMPERATURE_DATASET,
+
+        variables=[
+            "thetao"
+        ],
+
+        minimum_longitude=MIN_LON,
+        maximum_longitude=MAX_LON,
+
+        minimum_latitude=MIN_LAT,
+        maximum_latitude=MAX_LAT,
+
+        minimum_depth=0,
+        maximum_depth=1,
+
+        start_datetime=(
+            f"{start_date}T00:00:00"
+        ),
+
+        end_datetime=(
+            f"{end_date}T23:59:59"
         )
     )
 
 
-    common = dict(
+    return prepare_dataframe(
+        raw,
+        "thetao",
+        "temperature"
+    )
+
+
+# ============================================================
+# SALINITY
+# ============================================================
+
+@st.cache_data(ttl=1800)
+def load_salinity(
+    start_date,
+    end_date
+):
+
+    configure_copernicus()
+
+    raw = copernicusmarine.read_dataframe(
+
+        dataset_id=SALINITY_DATASET,
+
+        variables=[
+            "so"
+        ],
 
         minimum_longitude=MIN_LON,
-
         maximum_longitude=MAX_LON,
 
         minimum_latitude=MIN_LAT,
+        maximum_latitude=MAX_LAT,
 
+        minimum_depth=0,
+        maximum_depth=1,
+
+        start_datetime=(
+            f"{start_date}T00:00:00"
+        ),
+
+        end_datetime=(
+            f"{end_date}T23:59:59"
+        )
+    )
+
+
+    return prepare_dataframe(
+        raw,
+        "so",
+        "salinity"
+    )
+
+
+# ============================================================
+# SST ANOMALY
+# ============================================================
+
+@st.cache_data(ttl=1800)
+def load_sst_anomaly(
+    start_date,
+    end_date
+):
+
+    configure_copernicus()
+
+    raw = copernicusmarine.read_dataframe(
+
+        dataset_id=SST_ANOMALY_DATASET,
+
+        variables=[
+            "sea_surface_temperature_anomaly"
+        ],
+
+        minimum_longitude=MIN_LON,
+        maximum_longitude=MAX_LON,
+
+        minimum_latitude=MIN_LAT,
         maximum_latitude=MAX_LAT,
 
         start_datetime=(
@@ -302,143 +331,22 @@ def get_ocean_data(
     )
 
 
-    # ========================================================
-    # TEMPERATURE
-    # ========================================================
-
-    temperature_ds = (
-        copernicusmarine.open_dataset(
-
-            dataset_id=(
-                TEMPERATURE_DATASET
-            ),
-
-            variables=[
-                "thetao"
-            ],
-
-            minimum_depth=0,
-
-            maximum_depth=1,
-
-            **common
-        )
+    return prepare_dataframe(
+        raw,
+        "sea_surface_temperature_anomaly",
+        "sst_anomaly"
     )
 
 
-    temperature_df = (
-        field_to_dataframe(
+# ============================================================
+# MERGE OCEAN DATA
+# ============================================================
 
-            temperature_ds,
-
-            "thetao",
-
-            "temperature"
-        )
-    )
-
-
-    # ========================================================
-    # SALINITY
-    # ========================================================
-
-    salinity_ds = (
-        copernicusmarine.open_dataset(
-
-            dataset_id=(
-                SALINITY_DATASET
-            ),
-
-            variables=[
-                "so"
-            ],
-
-            minimum_depth=0,
-
-            maximum_depth=1,
-
-            **common
-        )
-    )
-
-
-    salinity_df = (
-        field_to_dataframe(
-
-            salinity_ds,
-
-            "so",
-
-            "salinity"
-        )
-    )
-
-
-    # ========================================================
-    # SST ANOMALY
-    # ========================================================
-
-    anomaly_ds = (
-        copernicusmarine.open_dataset(
-
-            dataset_id=(
-                SST_ANOMALY_DATASET
-            ),
-
-            **common
-        )
-    )
-
-
-    anomaly_candidates = [
-
-        name
-
-        for name
-        in anomaly_ds.data_vars
-
-        if "anomal"
-        in name.lower()
-    ]
-
-
-    if not anomaly_candidates:
-
-        anomaly_candidates = list(
-            anomaly_ds.data_vars
-        )
-
-
-    if not anomaly_candidates:
-
-        raise RuntimeError(
-            "No SST anomaly variable "
-            "was returned by Copernicus."
-        )
-
-
-    anomaly_variable = (
-        anomaly_candidates[
-            0
-        ]
-    )
-
-
-    anomaly_df = (
-        field_to_dataframe(
-
-            anomaly_ds,
-
-            anomaly_variable,
-
-            "sst_anomaly"
-        )
-    )
-
-
-    # ========================================================
-    # MERGE DATA
-    # ========================================================
+def merge_ocean_data(
+    temperature,
+    salinity,
+    anomaly
+):
 
     keys = [
         "date",
@@ -449,11 +357,11 @@ def get_ocean_data(
 
     merged = (
 
-        temperature_df
+        temperature
 
         .merge(
 
-            salinity_df[
+            salinity[
                 keys
                 +
                 [
@@ -468,7 +376,7 @@ def get_ocean_data(
 
         .merge(
 
-            anomaly_df[
+            anomaly[
                 keys
                 +
                 [
@@ -486,8 +394,8 @@ def get_ocean_data(
     if merged.empty:
 
         raise RuntimeError(
-            "Copernicus returned "
-            "no overlapping ocean cells."
+            "The Copernicus datasets loaded, "
+            "but no matching ocean grid cells were found."
         )
 
 
@@ -504,11 +412,11 @@ def habitat_reference(
 
     # Southern Hemisphere summer
 
-    if month in (
+    if month in [
         12,
         1,
         2
-    ):
+    ]:
 
         return {
 
@@ -531,11 +439,11 @@ def habitat_reference(
 
     # Southern Hemisphere winter
 
-    if month in (
+    elif month in [
         6,
         7,
         8
-    ):
+    ]:
 
         return {
 
@@ -556,32 +464,31 @@ def habitat_reference(
         }
 
 
-    # Spring / Autumn
-    # This is deliberately labelled
-    # as an MVP engineering approximation.
+    # MVP approximation for transitional months
 
-    return {
+    else:
 
-        "season":
-            "Transition "
-            "(MVP approximation)",
+        return {
 
-        "temp_min":
-            14.5,
+            "season":
+                "Transition",
 
-        "temp_max":
-            23.7,
+            "temp_min":
+                14.5,
 
-        "sal_min":
-            32.30,
+            "temp_max":
+                23.7,
 
-        "sal_max":
-            35.14
-    }
+            "sal_min":
+                32.30,
+
+            "sal_max":
+                35.14
+        }
 
 
 # ============================================================
-# RANGE SCORE
+# RANGE SUITABILITY SCORE
 # ============================================================
 
 def range_score(
@@ -660,11 +567,8 @@ def range_score(
 
 
     return np.clip(
-
         score,
-
         0,
-
         1
     )
 
@@ -674,14 +578,11 @@ def range_score(
 # ============================================================
 
 def calculate_hsi(
-    df,
+    dataframe,
     month
 ):
 
-    result = (
-        df.copy()
-    )
-
+    df = dataframe.copy()
 
     reference = (
         habitat_reference(
@@ -690,11 +591,11 @@ def calculate_hsi(
     )
 
 
-    result[
+    df[
         "temperature_score"
     ] = range_score(
 
-        result[
+        df[
             "temperature"
         ],
 
@@ -710,11 +611,11 @@ def calculate_hsi(
     )
 
 
-    result[
+    df[
         "salinity_score"
     ] = range_score(
 
-        result[
+        df[
             "salinity"
         ],
 
@@ -730,23 +631,23 @@ def calculate_hsi(
     )
 
 
-    # ========================================================
+    # --------------------------------------------------------
     # MVP V1
     #
-    # Temperature = 50%
-    # Salinity = 50%
+    # 50% Temperature suitability
+    # 50% Salinity suitability
     #
-    # These are temporary engineering weights.
-    # Final weights will come from the trained model.
-    # ========================================================
+    # These weights are temporary.
+    # Later they will be learned from anchoveta observations.
+    # --------------------------------------------------------
 
-    result[
+    df[
         "hsi"
     ] = (
 
         0.50
         *
-        result[
+        df[
             "temperature_score"
         ]
 
@@ -754,7 +655,7 @@ def calculate_hsi(
 
         0.50
         *
-        result[
+        df[
             "salinity_score"
         ]
 
@@ -764,11 +665,11 @@ def calculate_hsi(
     )
 
 
-    return result
+    return df
 
 
 # ============================================================
-# HSI CLASS
+# HSI CLASSIFICATION
 # ============================================================
 
 def hsi_class(
@@ -782,34 +683,36 @@ def hsi_class(
         )
 
 
-    if value >= 0.60:
+    elif value >= 0.60:
 
         return (
             "High"
         )
 
 
-    if value >= 0.35:
+    elif value >= 0.35:
 
         return (
             "Moderate"
         )
 
 
-    return (
-        "Low"
-    )
+    else:
+
+        return (
+            "Low"
+        )
 
 
 # ============================================================
-# CENTRE OF HIGH-SUITABILITY HABITAT
+# HIGH-SUITABILITY HABITAT CENTRE
 # ============================================================
 
 def habitat_centroid(
-    df
+    dataframe
 ):
 
-    if df.empty:
+    if dataframe.empty:
 
         return None
 
@@ -819,7 +722,7 @@ def habitat_centroid(
         0.60,
 
         float(
-            df[
+            dataframe[
                 "hsi"
             ]
             .quantile(
@@ -829,23 +732,25 @@ def habitat_centroid(
     )
 
 
-    high_habitat = df[
+    best_area = dataframe[
 
-        df[
+        dataframe[
             "hsi"
         ]
-        >= threshold
+
+        >=
+        threshold
 
     ].copy()
 
 
-    if high_habitat.empty:
+    if best_area.empty:
 
         return None
 
 
     weights = (
-        high_habitat[
+        best_area[
             "hsi"
         ]
         .to_numpy()
@@ -854,7 +759,7 @@ def habitat_centroid(
 
     latitude = np.average(
 
-        high_habitat[
+        best_area[
             "lat"
         ],
 
@@ -864,7 +769,7 @@ def habitat_centroid(
 
     longitude = np.average(
 
-        high_habitat[
+        best_area[
             "lon"
         ],
 
@@ -873,14 +778,8 @@ def habitat_centroid(
 
 
     return (
-
-        float(
-            latitude
-        ),
-
-        float(
-            longitude
-        )
+        float(latitude),
+        float(longitude)
     )
 
 
@@ -895,29 +794,26 @@ def haversine(
     lon2
 ):
 
-    earth_radius_km = (
-        6371.0
-    )
+    radius = 6371.0
 
 
-    p1 = math.radians(
+    phi1 = math.radians(
         lat1
     )
 
-
-    p2 = math.radians(
+    phi2 = math.radians(
         lat2
     )
 
 
-    dlat = math.radians(
+    delta_phi = math.radians(
         lat2
         -
         lat1
     )
 
 
-    dlon = math.radians(
+    delta_lambda = math.radians(
         lon2
         -
         lon1
@@ -927,7 +823,7 @@ def haversine(
     a = (
 
         math.sin(
-            dlat
+            delta_phi
             /
             2
         )
@@ -936,19 +832,19 @@ def haversine(
         +
 
         math.cos(
-            p1
+            phi1
         )
 
         *
 
         math.cos(
-            p2
+            phi2
         )
 
         *
 
         math.sin(
-            dlon
+            delta_lambda
             /
             2
         )
@@ -961,7 +857,7 @@ def haversine(
         2
 
         *
-        earth_radius_km
+        radius
 
         *
         math.asin(
@@ -983,17 +879,16 @@ def calculate_bearing(
     lon2
 ):
 
-    p1 = math.radians(
+    phi1 = math.radians(
         lat1
     )
 
-
-    p2 = math.radians(
+    phi2 = math.radians(
         lat2
     )
 
 
-    dlon = math.radians(
+    delta_lambda = math.radians(
         lon2
         -
         lon1
@@ -1003,13 +898,13 @@ def calculate_bearing(
     x = (
 
         math.sin(
-            dlon
+            delta_lambda
         )
 
         *
 
         math.cos(
-            p2
+            phi2
         )
     )
 
@@ -1017,53 +912,53 @@ def calculate_bearing(
     y = (
 
         math.cos(
-            p1
+            phi1
         )
 
         *
 
         math.sin(
-            p2
+            phi2
         )
 
         -
 
         math.sin(
-            p1
+            phi1
         )
 
         *
 
         math.cos(
-            p2
+            phi2
         )
 
         *
 
         math.cos(
-            dlon
+            delta_lambda
+        )
+    )
+
+
+    bearing = math.degrees(
+
+        math.atan2(
+            x,
+            y
         )
     )
 
 
     return (
-
-        math.degrees(
-
-            math.atan2(
-                x,
-                y
-            )
-        )
-
+        bearing
         +
         360
-
     ) % 360
 
 
 # ============================================================
-# DIRECTION NAME
+# BEARING → COMPASS DIRECTION
 # ============================================================
 
 def direction_name(
@@ -1120,34 +1015,48 @@ with st.sidebar:
     )
 
 
-    st.write(
-        "Study area:"
+    st.markdown(
+        "### Study Area"
     )
 
 
     st.write(
-        "Lobitos • Siches • Piedritas"
+        "Costanera Corridor"
     )
 
 
-    selected_date = (
-        st.date_input(
+    st.write(
+        "• Lobitos"
+    )
 
-            "Ocean date",
+    st.write(
+        "• Siches"
+    )
 
-            value=date.today()
-        )
+    st.write(
+        "• Piedritas"
+    )
+
+
+    st.divider()
+
+
+    selected_date = st.date_input(
+
+        "Ocean Date",
+
+        value=date.today()
     )
 
 
     st.caption(
-        "The app requests the selected "
-        "day plus up to 72 hours."
+        "The app requests the selected date "
+        "plus the following 72 hours."
     )
 
 
     if st.button(
-        "🔄 Refresh data",
+        "🔄 Refresh Data",
         use_container_width=True
     ):
 
@@ -1155,28 +1064,117 @@ with st.sidebar:
 
 
 # ============================================================
-# LOAD DATA
+# DATE RANGE
+# ============================================================
+
+end_date = (
+    selected_date
+    +
+    timedelta(
+        days=3
+    )
+)
+
+
+# ============================================================
+# LOAD COPERNICUS DATA WITH VISIBLE STATUS
 # ============================================================
 
 try:
 
-    with st.spinner(
-        "Loading Copernicus Marine "
-        "analysis/forecast data..."
-    ):
+    with st.status(
+        "Connecting to Copernicus Marine...",
+        expanded=True
+    ) as status:
 
-        ocean = get_ocean_data(
 
-            selected_date,
+        status.write(
+            "🔐 Checking Copernicus credentials..."
+        )
 
-            days_ahead=3
+        configure_copernicus()
+
+
+        status.write(
+            "🌡️ 1/3 Loading sea temperature..."
+        )
+
+        temperature_data = (
+            load_temperature(
+                selected_date,
+                end_date
+            )
+        )
+
+
+        status.write(
+            "✅ Temperature loaded"
+        )
+
+
+        status.write(
+            "🧂 2/3 Loading salinity..."
+        )
+
+        salinity_data = (
+            load_salinity(
+                selected_date,
+                end_date
+            )
+        )
+
+
+        status.write(
+            "✅ Salinity loaded"
+        )
+
+
+        status.write(
+            "🌊 3/3 Loading official SST anomaly..."
+        )
+
+        anomaly_data = (
+            load_sst_anomaly(
+                selected_date,
+                end_date
+            )
+        )
+
+
+        status.write(
+            "✅ SST anomaly loaded"
+        )
+
+
+        status.write(
+            "🔗 Combining datasets..."
+        )
+
+
+        ocean = merge_ocean_data(
+            temperature_data,
+            salinity_data,
+            anomaly_data
+        )
+
+
+        status.update(
+            label="✅ Copernicus Marine data loaded",
+            state="complete",
+            expanded=False
         )
 
 
 except Exception as error:
 
     st.error(
-        "Could not load Copernicus data."
+        "❌ E-AWARE could not load the Copernicus data."
+    )
+
+
+    st.write(
+        "The message below will help identify "
+        "which request failed:"
     )
 
 
@@ -1203,19 +1201,16 @@ available_dates = sorted(
 )
 
 
-if not available_dates:
+if len(
+    available_dates
+) == 0:
 
     st.error(
-        "No ocean data was returned "
-        "for this request."
+        "No ocean data was returned."
     )
 
     st.stop()
 
-
-# ============================================================
-# CURRENT DAY
-# ============================================================
 
 current_date = (
     available_dates[
@@ -1224,24 +1219,27 @@ current_date = (
 )
 
 
+# ============================================================
+# CURRENT DATA
+# ============================================================
+
 current_data = ocean[
 
     ocean[
         "date"
     ]
+
     ==
     current_date
 
 ].copy()
 
 
-current_data = (
-    calculate_hsi(
+current_data = calculate_hsi(
 
-        current_data,
+    current_data,
 
-        current_date.month
-    )
+    current_date.month
 )
 
 
@@ -1269,11 +1267,9 @@ best = current_data.loc[
 ]
 
 
-reference = (
-    habitat_reference(
+reference = habitat_reference(
 
-        current_date.month
-    )
+    current_date.month
 )
 
 
@@ -1282,18 +1278,20 @@ reference = (
 # ============================================================
 
 st.subheader(
-    "Current / forecast ocean conditions"
+    "🌊 Current Ocean Conditions"
 )
 
 
-m1, m2, m3, m4 = st.columns(
-    4
+metric1, metric2, metric3, metric4 = (
+    st.columns(
+        4
+    )
 )
 
 
-m1.metric(
+metric1.metric(
 
-    "Data date",
+    "Ocean Data Date",
 
     str(
         current_date
@@ -1301,7 +1299,7 @@ m1.metric(
 )
 
 
-m2.metric(
+metric2.metric(
 
     "Highest HSI",
 
@@ -1309,45 +1307,51 @@ m2.metric(
 )
 
 
-m3.metric(
+metric3.metric(
 
-    "Highest-cell SST",
+    "Best Habitat SST",
 
-    f"{best['temperature']:.1f} °C"
+    f"{best['temperature']:.2f} °C"
 )
 
 
-m4.metric(
+if pd.notna(
+    best[
+        "sst_anomaly"
+    ]
+):
 
-    "SST anomaly",
-
-    (
+    anomaly_text = (
         f"{best['sst_anomaly']:+.2f} °C"
+    )
 
-        if pd.notna(
-            best[
-                "sst_anomaly"
-            ]
-        )
+else:
 
-        else
+    anomaly_text = (
         "Unavailable"
     )
+
+
+metric4.metric(
+
+    "SST Anomaly",
+
+    anomaly_text
 )
 
 
 st.caption(
-    "Ocean inputs come from Copernicus Marine. "
-    "HSI is an E-AWARE MVP estimate."
+    "Copernicus provides the environmental data. "
+    "E-AWARE calculates the Habitat Suitability Index."
 )
 
 
 # ============================================================
-# HABITAT MAP
+# MAP
 # ============================================================
 
 st.subheader(
-    "🗺 Anchoveta habitat map"
+    "🗺️ Anchoveta Habitat Map"
 )
 
 
@@ -1372,7 +1376,7 @@ map_data = (
 
 
 # ============================================================
-# COLOURS
+# MAP COLOURS
 # ============================================================
 
 if map_mode == (
@@ -1393,10 +1397,6 @@ if map_mode == (
 
         *
         220
-
-    ).clip(
-        20,
-        220
     )
 
 
@@ -1410,10 +1410,6 @@ if map_mode == (
 
         *
         210
-
-    ).clip(
-        30,
-        210
     )
 
 
@@ -1426,17 +1422,14 @@ elif map_mode == (
     "Temperature"
 ):
 
-    values = (
-        map_data[
-            "temperature"
-        ]
-    )
+    values = map_data[
+        "temperature"
+    ]
 
 
     spread = max(
 
         float(
-
             values.max()
             -
             values.min()
@@ -1446,7 +1439,7 @@ elif map_mode == (
     )
 
 
-    normalized = (
+    normalised = (
 
         values
         -
@@ -1464,7 +1457,7 @@ elif map_mode == (
         +
         170
         *
-        normalized
+        normalised
     )
 
 
@@ -1482,7 +1475,7 @@ elif map_mode == (
         -
         150
         *
-        normalized
+        normalised
     )
 
 
@@ -1516,11 +1509,11 @@ elif map_mode == (
             )
         ),
 
-        0.1
+        0.10
     )
 
 
-    normalized = (
+    normalised = (
 
         (
             values
@@ -1543,7 +1536,7 @@ elif map_mode == (
         +
         200
         *
-        normalized
+        normalised
     )
 
 
@@ -1561,23 +1554,20 @@ elif map_mode == (
         -
         190
         *
-        normalized
+        normalised
     )
 
 
 else:
 
-    values = (
-        map_data[
-            "salinity"
-        ]
-    )
+    values = map_data[
+        "salinity"
+    ]
 
 
     spread = max(
 
         float(
-
             values.max()
             -
             values.min()
@@ -1587,7 +1577,7 @@ else:
     )
 
 
-    normalized = (
+    normalised = (
 
         values
         -
@@ -1610,7 +1600,7 @@ else:
         +
         120
         *
-        normalized
+        normalised
     )
 
 
@@ -1620,7 +1610,7 @@ else:
 
 
 # ============================================================
-# OCEAN LAYER
+# OCEAN MAP LAYER
 # ============================================================
 
 ocean_layer = pdk.Layer(
@@ -1629,22 +1619,30 @@ ocean_layer = pdk.Layer(
 
     data=map_data,
 
-    get_position="[lon, lat]",
+    get_position=[
+        "lon",
+        "lat"
+    ],
 
-    get_fill_color="[r, g, b, 190]",
+    get_fill_color=[
+        "r",
+        "g",
+        "b",
+        190
+    ],
 
     get_radius=700,
 
-    radius_min_pixels=5,
+    radius_min_pixels=6,
 
-    radius_max_pixels=16,
+    radius_max_pixels=18,
 
     pickable=True
 )
 
 
 # ============================================================
-# COMMUNITY LAYER
+# COMMUNITY MARKERS
 # ============================================================
 
 community_layer = pdk.Layer(
@@ -1653,7 +1651,10 @@ community_layer = pdk.Layer(
 
     data=COMMUNITIES,
 
-    get_position="[lon, lat]",
+    get_position=[
+        "lon",
+        "lat"
+    ],
 
     get_fill_color=[
         255,
@@ -1688,28 +1689,23 @@ st.pydeck_chart(
     pdk.Deck(
 
         map_style=(
-
             "https://basemaps.cartocdn.com/"
             "gl/positron-gl-style/style.json"
         ),
 
-        initial_view_state=(
-            pdk.ViewState(
+        initial_view_state=pdk.ViewState(
 
-                latitude=-4.49,
+            latitude=-4.49,
 
-                longitude=-81.36,
+            longitude=-81.36,
 
-                zoom=9.5,
+            zoom=9.5,
 
-                pitch=0
-            )
+            pitch=0
         ),
 
         layers=[
-
             ocean_layer,
-
             community_layer
         ],
 
@@ -1717,7 +1713,7 @@ st.pydeck_chart(
 
             "html":
 
-                "<b>{class} habitat</b><br/>"
+                "<b>{class} Habitat</b><br/>"
 
                 "HSI: {hsi}<br/>"
 
@@ -1734,50 +1730,93 @@ st.pydeck_chart(
 
 
 st.caption(
-    "Missing/land cells are excluded because "
-    "Copernicus returns no valid ocean values there."
+    "Only valid Copernicus ocean cells are included."
 )
 
 
 # ============================================================
-# HABITAT CONDITIONS
+# BEST HABITAT
 # ============================================================
 
 st.subheader(
-    "Why is this habitat considered suitable?"
+    "📍 Best Predicted Habitat Zone"
 )
 
 
-r1, r2, r3 = st.columns(
-    3
+zone1, zone2, zone3 = (
+    st.columns(
+        3
+    )
 )
 
 
-r1.metric(
+zone1.metric(
 
-    "Reference temperature",
+    "Latitude",
+
+    f"{best['lat']:.4f}"
+)
+
+
+zone2.metric(
+
+    "Longitude",
+
+    f"{best['lon']:.4f}"
+)
+
+
+zone3.metric(
+
+    "Suitability",
+
+    hsi_class(
+        best[
+            "hsi"
+        ]
+    )
+)
+
+
+# ============================================================
+# HABITAT REFERENCE
+# ============================================================
+
+st.subheader(
+    "🐟 Why is this habitat considered suitable?"
+)
+
+
+reference1, reference2, reference3 = (
+    st.columns(
+        3
+    )
+)
+
+
+reference1.metric(
+
+    "Temperature Range",
 
     (
-        f"{reference['temp_min']}"
-        "–"
+        f"{reference['temp_min']} – "
         f"{reference['temp_max']} °C"
     )
 )
 
 
-r2.metric(
+reference2.metric(
 
-    "Reference salinity",
+    "Salinity Range",
 
     (
-        f"{reference['sal_min']}"
-        "–"
+        f"{reference['sal_min']} – "
         f"{reference['sal_max']} PSU"
     )
 )
 
 
-r3.metric(
+reference3.metric(
 
     "Season",
 
@@ -1788,25 +1827,25 @@ r3.metric(
 
 
 st.warning(
-    "V1 is a transparent reference-rule MVP. "
-    "Temperature and salinity currently have equal weight. "
-    "It is not yet the trained IMARPE anchoveta model."
+    "MVP V1 currently uses temperature and salinity "
+    "with equal weighting. The final model will be "
+    "trained and tested against historical anchoveta observations."
 )
 
 
 # ============================================================
-# FORECAST CALCULATIONS
+# FORECAST
 # ============================================================
 
 forecast_centres = []
 
-forecast_rows = []
+forecast_results = []
 
 
 for forecast_date in available_dates:
 
 
-    frame = ocean[
+    forecast_frame = ocean[
 
         ocean[
             "date"
@@ -1818,23 +1857,23 @@ for forecast_date in available_dates:
     ].copy()
 
 
-    frame = calculate_hsi(
+    forecast_frame = calculate_hsi(
 
-        frame,
+        forecast_frame,
 
         forecast_date.month
     )
 
 
     centre = habitat_centroid(
-        frame
+
+        forecast_frame
     )
 
 
     if centre is not None:
 
         forecast_centres.append(
-
             {
                 "date":
                     forecast_date,
@@ -1852,9 +1891,9 @@ for forecast_date in available_dates:
         )
 
 
-    best_day = frame.loc[
+    best_forecast = forecast_frame.loc[
 
-        frame[
+        forecast_frame[
             "hsi"
         ]
 
@@ -1862,65 +1901,54 @@ for forecast_date in available_dates:
     ]
 
 
-    forecast_rows.append(
-
+    forecast_results.append(
         {
             "Date":
                 forecast_date,
 
             "Highest HSI":
                 round(
-
                     float(
-                        best_day[
+                        best_forecast[
                             "hsi"
                         ]
                     ),
-
                     2
                 ),
 
-            "SST °C":
+            "Temperature °C":
                 round(
-
                     float(
-                        best_day[
+                        best_forecast[
                             "temperature"
                         ]
                     ),
-
                     2
                 ),
 
             "Salinity PSU":
                 round(
-
                     float(
-                        best_day[
+                        best_forecast[
                             "salinity"
                         ]
                     ),
-
                     2
                 ),
 
-            "SST anomaly °C":
-
+            "SST Anomaly °C":
                 (
                     round(
-
                         float(
-                            best_day[
+                            best_forecast[
                                 "sst_anomaly"
                             ]
                         ),
-
                         2
                     )
 
                     if pd.notna(
-
-                        best_day[
+                        best_forecast[
                             "sst_anomaly"
                         ]
                     )
@@ -1937,7 +1965,7 @@ for forecast_date in available_dates:
 # ============================================================
 
 st.subheader(
-    "🧭 Predicted habitat shift"
+    "🧭 Predicted Habitat Shift"
 )
 
 
@@ -1945,14 +1973,12 @@ direction_text = (
     "No clear shift"
 )
 
-
 distance_text = (
     "—"
 )
 
-
 period_text = (
-    "Not enough forecast data"
+    "Insufficient forecast data"
 )
 
 
@@ -1961,21 +1987,16 @@ if len(
 ) >= 2:
 
 
-    start = (
-        forecast_centres[
-            0
-        ]
-    )
+    start = forecast_centres[
+        0
+    ]
+
+    end = forecast_centres[
+        -1
+    ]
 
 
-    end = (
-        forecast_centres[
-            -1
-        ]
-    )
-
-
-    distance_km = haversine(
+    distance = haversine(
 
         start[
             "lat"
@@ -1995,10 +2016,24 @@ if len(
     )
 
 
-    # Ignore tiny shifts below 2 km
-    # because the model grid is coarse.
+    period_text = (
 
-    if distance_km >= 2.0:
+        f"{start['date']}"
+        " → "
+        f"{end['date']}"
+    )
+
+
+    distance_text = (
+        f"{distance:.1f} km"
+    )
+
+
+    # Ignore very small shifts
+    # because the source grid itself
+    # is relatively coarse.
+
+    if distance >= 2.0:
 
 
         bearing = calculate_bearing(
@@ -2028,79 +2063,56 @@ if len(
         )
 
 
-        distance_text = (
-            f"{distance_km:.1f} km"
-        )
-
-
-    else:
-
-        direction_text = (
-            "No clear shift"
-        )
-
-
-        distance_text = (
-            f"{distance_km:.1f} km"
-        )
-
-
-    period_text = (
-
-        f"{start['date']}"
-        " → "
-        f"{end['date']}"
+shift1, shift2, shift3 = (
+    st.columns(
+        3
     )
-
-
-f1, f2, f3 = st.columns(
-    3
 )
 
 
-f1.metric(
+shift1.metric(
 
-    "Predicted habitat direction",
+    "Predicted Habitat Direction",
 
     direction_text
 )
 
 
-f2.metric(
+shift2.metric(
 
-    "Habitat-centre shift",
+    "Habitat Centre Shift",
 
     distance_text
 )
 
 
-f3.metric(
+shift3.metric(
 
-    "Forecast period",
+    "Forecast Period",
 
     period_text
 )
 
 
 st.info(
-    "The direction describes where the high-suitability "
-    "habitat is forecast to shift. "
-    "It does not mean individual anchoveta schools are "
-    "confirmed to be swimming in that direction."
+    "The direction represents the forecast movement "
+    "of the most suitable anchoveta habitat. "
+    "It does not mean fish are directly tracked moving "
+    "in that direction."
 )
 
 
 # ============================================================
-# 72 HOUR FORECAST TABLE
+# FORECAST TABLE
 # ============================================================
 
 st.subheader(
-    "72-hour habitat forecast"
+    "📅 72-Hour Habitat Forecast"
 )
 
 
 forecast_table = pd.DataFrame(
-    forecast_rows
+    forecast_results
 )
 
 
@@ -2115,11 +2127,11 @@ st.dataframe(
 
 
 # ============================================================
-# SMS PREVIEW
+# SMS ALERT PREVIEW
 # ============================================================
 
 st.subheader(
-    "📱 Fisher SMS preview"
+    "📱 Fisher SMS Alert Preview"
 )
 
 
@@ -2130,7 +2142,7 @@ best_hsi = float(
 )
 
 
-habitat_text = (
+habitat_status = (
     hsi_class(
         best_hsi
     )
@@ -2138,12 +2150,13 @@ habitat_text = (
 )
 
 
-sms_message = f"""
-E-AWARE Fisheries Alert
+sms_message = f"""E-AWARE Fisheries Alert
 
-Anchoveta habitat suitability: {habitat_text}
+Anchoveta habitat suitability:
+{habitat_status}
 
-Habitat Suitability Index: {best_hsi:.2f}
+Habitat Suitability Index:
+{best_hsi:.2f}
 
 Predicted suitable-habitat shift:
 {direction_text}
@@ -2162,26 +2175,26 @@ E-AWARE provides habitat guidance only.
 
 st.text_area(
 
-    "Example SMS sent to fishers",
+    "Example SMS",
 
     sms_message,
 
-    height=230
+    height=260
 )
 
 
 st.caption(
-    "V1 only previews the message. "
-    "It does not yet send a real SMS."
+    "MVP V1 previews the SMS. "
+    "It does not yet send messages to real phone numbers."
 )
 
 
 # ============================================================
-# SOURCE TRANSPARENCY
+# DATA SOURCE TRANSPARENCY
 # ============================================================
 
 st.subheader(
-    "Scientific sources & transparency"
+    "📊 Data Sources & Transparency"
 )
 
 
@@ -2192,10 +2205,32 @@ source_table = pd.DataFrame(
                 "Copernicus Marine",
 
             "Status":
-                "Daily analysis / forecast",
+                "Near-real-time / forecast",
 
-            "Use in V1":
-                "Temperature, salinity and SST anomaly"
+            "Used For":
+                "Sea temperature"
+        },
+
+        {
+            "Source":
+                "Copernicus Marine",
+
+            "Status":
+                "Near-real-time / forecast",
+
+            "Used For":
+                "Salinity"
+        },
+
+        {
+            "Source":
+                "Copernicus Marine",
+
+            "Status":
+                "Near-real-time / forecast",
+
+            "Used For":
+                "Official SST anomaly"
         },
 
         {
@@ -2203,32 +2238,21 @@ source_table = pd.DataFrame(
                 "Anchoveta habitat study",
 
             "Status":
-                "Historical scientific reference",
+                "Historical scientific research",
 
-            "Use in V1":
-                "Seasonal temperature and salinity ranges"
+            "Used For":
+                "Temperature and salinity habitat ranges"
         },
 
         {
             "Source":
-                "IMARPE SIOFEN",
+                "IMARPE",
 
             "Status":
-                "Latest scientific observation",
+                "Scientific observations",
 
-            "Use in V1":
-                "Reference now; training/validation later"
-        },
-
-        {
-            "Source":
-                "IMARPE Daily Oceanographic Bulletin",
-
-            "Status":
-                "Daily / latest",
-
-            "Use in V1":
-                "Supporting Peru ocean context"
+            "Used For":
+                "Future model training and validation"
         },
 
         {
@@ -2238,8 +2262,8 @@ source_table = pd.DataFrame(
             "Status":
                 "Regulatory updates",
 
-            "Use in V1":
-                "Future closure/protection logic"
+            "Used For":
+                "Future closure and ecological protection layer"
         }
     ]
 )
@@ -2260,31 +2284,44 @@ st.dataframe(
 # ============================================================
 
 with st.expander(
-    "MVP V1 limitations"
+    "⚙️ MVP V1 Limitations"
 ):
 
-    st.write(
+    st.markdown(
         """
-Current HSI variables:
+### Current HSI inputs
 
 - Sea temperature
 - Salinity
 
-Displayed but not weighted:
+### Displayed but not yet weighted
 
 - SST anomaly
 
-Planned next integrations:
+### Planned next variables
 
-- Dissolved oxygen / oxycline
+- Dissolved oxygen
+- Oxycline depth
 - Bathymetry
 - Distance from coast
-- Historical anchoveta observations
-- Model training and independent validation
-- Regulatory / juvenile-protection logic
+- Season/month
+- Chlorophyll
+- Ocean currents
 
-The transition-season habitat envelope is an MVP engineering
-approximation and must be replaced by a validated seasonal model.
+### Planned model development
+
+- Historical anchoveta observations
+- IMARPE training data
+- Logistic Regression baseline
+- Random Forest
+- XGBoost
+- Independent testing
+- El Niño validation
+- Juvenile protection layer
+- Fisheries closure layer
+
+The current transition-season range is an MVP approximation
+and will later be replaced by a trained seasonal habitat model.
         """
     )
 
@@ -2298,6 +2335,13 @@ st.divider()
 
 st.caption(
     "E-AWARE MVP V1 | "
-    "Decision-support research prototype | "
-    "Not confirmed fish location and not a legal fishing instruction."
+    "El Niño Adaptive Fisheries Intelligence | "
+    "Decision-support research prototype"
+)
+
+
+st.caption(
+    "Habitat suitability is a model estimate. "
+    "It is not confirmed fish location, catch advice, "
+    "or a legal fishing instruction."
 )
