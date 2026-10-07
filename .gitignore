@@ -1,0 +1,6 @@
+.streamlit/secrets.toml
+__pycache__/
+*.pyc
+*.nc
+*.zarr/
+.DS_Store
