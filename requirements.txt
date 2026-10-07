@@ -4,4 +4,4 @@ numpy
 pandas
 pydeck
 xarray
-dask
+netCDF4
