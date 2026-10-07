@@ -230,7 +230,6 @@ def download_subset(
         get_credentials()
     )
 
-    # Avoid Streamlit/server proxy settings interfering
     os.environ[
         "COPERNICUSMARINE_TRUST_ENV"
     ] = "False"
@@ -304,21 +303,16 @@ def download_subset(
         )
 
 
-        # ----------------------------------------------------
-        # Locate downloaded file safely
-        # ----------------------------------------------------
-
         possible_path = Path(
             str(
                 response.file_path
             )
         )
 
+
         if possible_path.exists():
 
-            file_path = (
-                possible_path
-            )
+            file_path = possible_path
 
         else:
 
@@ -332,9 +326,6 @@ def download_subset(
 
 
         if not file_path.exists():
-
-            # Final fallback:
-            # find any NetCDF in the temporary directory.
 
             netcdf_files = list(
                 Path(
@@ -360,10 +351,6 @@ def download_subset(
                 ]
             )
 
-
-        # ----------------------------------------------------
-        # Open downloaded NetCDF
-        # ----------------------------------------------------
 
         with xr.open_dataset(
             file_path
@@ -393,22 +380,16 @@ def download_subset(
                 )
 
 
-            # Important:
-            # load before temporary file is deleted
-
             data_array = (
                 data_array.load()
             )
 
 
             dataframe = (
-
                 data_array
-
                 .to_dataframe(
                     name=output_name
                 )
-
                 .reset_index()
             )
 
@@ -537,12 +518,10 @@ def merge_ocean_data(
         "lon_key"
     ]
 
+
     merged = (
-
         temperature
-
         .merge(
-
             salinity[
                 keys
                 +
@@ -550,14 +529,10 @@ def merge_ocean_data(
                     "salinity"
                 ]
             ],
-
             on=keys,
-
             how="inner"
         )
-
         .merge(
-
             anomaly[
                 keys
                 +
@@ -565,12 +540,11 @@ def merge_ocean_data(
                     "sst_anomaly"
                 ]
             ],
-
             on=keys,
-
             how="left"
         )
     )
+
 
     if merged.empty:
 
@@ -578,6 +552,7 @@ def merge_ocean_data(
             "Copernicus data downloaded successfully, "
             "but no matching grid cells were found."
         )
+
 
     return merged
 
@@ -590,7 +565,7 @@ def habitat_reference(
     month
 ):
 
-    # Southern Hemisphere Summer
+    # Southern Hemisphere summer
 
     if month in [
         12,
@@ -617,7 +592,7 @@ def habitat_reference(
         }
 
 
-    # Southern Hemisphere Winter
+    # Southern Hemisphere winter
 
     elif month in [
         6,
@@ -684,16 +659,19 @@ def range_score(
         dtype=float
     )
 
+
     score = np.ones_like(
         values,
         dtype=float
     )
+
 
     below = (
         values
         <
         minimum
     )
+
 
     above = (
         values
@@ -855,31 +833,23 @@ def hsi_class(
 
     if value >= 0.80:
 
-        return (
-            "Very High"
-        )
+        return "Very High"
 
     elif value >= 0.60:
 
-        return (
-            "High"
-        )
+        return "High"
 
     elif value >= 0.35:
 
-        return (
-            "Moderate"
-        )
+        return "Moderate"
 
     else:
 
-        return (
-            "Low"
-        )
+        return "Low"
 
 
 # ============================================================
-# HABITAT CENTRE
+# RELATIVE HABITAT CENTRE
 # ============================================================
 
 def habitat_centroid(
@@ -891,52 +861,63 @@ def habitat_centroid(
         return None
 
 
-    threshold = max(
+    # Use the best 25% of cells on EACH day.
+    #
+    # We deliberately do NOT require HSI >= 0.60.
+    # This means even if conditions are only moderate,
+    # we can still track where the relatively best
+    # habitat is moving.
 
-        0.60,
-
-        float(
-
-            dataframe[
-                "hsi"
-            ]
-
-            .quantile(
-                0.75
-            )
+    threshold = float(
+        dataframe[
+            "hsi"
+        ]
+        .quantile(
+            0.75
         )
     )
 
 
-    suitable = dataframe[
+    best_area = dataframe[
 
         dataframe[
             "hsi"
         ]
 
         >=
-
         threshold
 
     ].copy()
 
 
-    if suitable.empty:
+    if best_area.empty:
 
-        return None
+        best_area = (
+            dataframe
+            .nlargest(
+                1,
+                "hsi"
+            )
+            .copy()
+        )
 
 
-    weights = (
-        suitable[
+    weights = np.clip(
+
+        best_area[
             "hsi"
         ]
-        .to_numpy()
+        .to_numpy(),
+
+        0.01,
+
+        None
     )
 
 
     latitude = np.average(
 
-        suitable[
+        best_area[
             "lat"
         ],
 
@@ -946,7 +927,7 @@ def habitat_centroid(
 
     longitude = np.average(
 
-        suitable[
+        best_area[
             "lon"
         ],
 
@@ -1190,6 +1171,64 @@ def direction_name(
 
 
 # ============================================================
+# NORTH/SOUTH + EAST/WEST MOVEMENT
+# ============================================================
+
+def movement_components(
+    lat1,
+    lon1,
+    lat2,
+    lon2
+):
+
+    # Approximately 111.32 km per latitude degree
+
+    north_km = (
+
+        lat2
+        -
+        lat1
+
+    ) * 111.32
+
+
+    mean_latitude = math.radians(
+
+        (
+            lat1
+            +
+            lat2
+        )
+        /
+        2
+    )
+
+
+    east_km = (
+
+        lon2
+        -
+        lon1
+
+    ) * (
+
+        111.32
+
+        *
+
+        math.cos(
+            mean_latitude
+        )
+    )
+
+
+    return (
+        north_km,
+        east_km
+    )
+
+
+# ============================================================
 # SIDEBAR
 # ============================================================
 
@@ -1278,10 +1317,6 @@ try:
     ) as status:
 
 
-        # ----------------------------------------------------
-        # Credential check
-        # ----------------------------------------------------
-
         status.write(
             "🔐 Checking Copernicus credentials..."
         )
@@ -1317,7 +1352,7 @@ try:
 
 
         # ----------------------------------------------------
-        # Temperature
+        # TEMPERATURE
         # ----------------------------------------------------
 
         status.write(
@@ -1342,7 +1377,7 @@ try:
 
 
         # ----------------------------------------------------
-        # Salinity
+        # SALINITY
         # ----------------------------------------------------
 
         status.write(
@@ -1367,7 +1402,7 @@ try:
 
 
         # ----------------------------------------------------
-        # SST anomaly
+        # SST ANOMALY
         # ----------------------------------------------------
 
         status.write(
@@ -1392,7 +1427,7 @@ try:
 
 
         # ----------------------------------------------------
-        # Merge
+        # MERGE
         # ----------------------------------------------------
 
         status.write(
@@ -1470,15 +1505,27 @@ if len(
 
 
 # ============================================================
-# CURRENT DATE
+# SELECT CURRENT DATE
 # ============================================================
 
-current_date = (
-    available_dates[
-        0
-    ]
-)
+if selected_date in available_dates:
 
+    current_date = (
+        selected_date
+    )
+
+else:
+
+    current_date = (
+        available_dates[
+            0
+        ]
+    )
+
+
+# ============================================================
+# CURRENT DATA
+# ============================================================
 
 current_data = ocean[
 
@@ -1574,7 +1621,7 @@ metric2.metric(
 
 metric3.metric(
 
-    "Best-Zone SST",
+    "Highest-HSI SST",
 
     f"{best['temperature']:.2f} °C"
 )
@@ -1596,6 +1643,12 @@ metric4.metric(
         else
         "Unavailable"
     )
+)
+
+
+st.caption(
+    "Copernicus provides the environmental inputs. "
+    "E-AWARE calculates the Habitat Suitability Index."
 )
 
 
@@ -1629,7 +1682,7 @@ map_data = (
 
 
 # ============================================================
-# MAP COLOURING
+# MAP COLOURS
 # ============================================================
 
 if map_mode == (
@@ -1994,11 +2047,11 @@ st.caption(
 
 
 # ============================================================
-# BEST HABITAT ZONE
+# HIGHEST RELATIVE HABITAT SUITABILITY
 # ============================================================
 
 st.subheader(
-    "📍 Best Predicted Habitat Zone"
+    "📍 Highest Relative Habitat Suitability"
 )
 
 
@@ -2037,12 +2090,19 @@ zone3.metric(
 )
 
 
+st.caption(
+    "This is the highest-scoring cell within the current "
+    "study area. It does not necessarily mean that conditions "
+    "are highly suitable overall."
+)
+
+
 # ============================================================
 # HABITAT REFERENCE
 # ============================================================
 
 st.subheader(
-    "🐟 Why is this habitat suitable?"
+    "🐟 Why is this habitat considered suitable?"
 )
 
 
@@ -2216,13 +2276,41 @@ for forecast_date in available_dates:
                     )
 
                     else None
+                ),
+
+            "Habitat Centre Lat":
+                (
+                    round(
+                        centre[
+                            0
+                        ],
+                        4
+                    )
+
+                    if centre is not None
+
+                    else None
+                ),
+
+            "Habitat Centre Lon":
+                (
+                    round(
+                        centre[
+                            1
+                        ],
+                        4
+                    )
+
+                    if centre is not None
+
+                    else None
                 )
         }
     )
 
 
 # ============================================================
-# HABITAT SHIFT
+# PREDICTED HABITAT SHIFT
 # ============================================================
 
 st.subheader(
@@ -2231,11 +2319,16 @@ st.subheader(
 
 
 direction_text = (
-    "No clear shift"
+    "Unavailable"
 )
 
 
 distance_text = (
+    "—"
+)
+
+
+bearing_text = (
     "—"
 )
 
@@ -2245,20 +2338,50 @@ period_text = (
 )
 
 
+start_point_text = (
+    "—"
+)
+
+
+end_point_text = (
+    "—"
+)
+
+
+north_south_text = (
+    "—"
+)
+
+
+east_west_text = (
+    "—"
+)
+
+
 if len(
     forecast_centres
 ) >= 2:
 
 
-    start = forecast_centres[
-        0
-    ]
+    # The first centre now represents the selected/current day.
+    start = (
+        forecast_centres[
+            0
+        ]
+    )
 
 
-    end = forecast_centres[
-        -1
-    ]
+    # Last available centre should normally represent +72 h.
+    end = (
+        forecast_centres[
+            -1
+        ]
+    )
 
+
+    # --------------------------------------------------------
+    # TOTAL DISTANCE
+    # --------------------------------------------------------
 
     distance = haversine(
 
@@ -2280,26 +2403,36 @@ if len(
     )
 
 
-    distance_text = (
-        f"{distance:.1f} km"
+    # --------------------------------------------------------
+    # BEARING
+    # --------------------------------------------------------
+
+    bearing = calculate_bearing(
+
+        start[
+            "lat"
+        ],
+
+        start[
+            "lon"
+        ],
+
+        end[
+            "lat"
+        ],
+
+        end[
+            "lon"
+        ]
     )
 
 
-    period_text = (
+    # --------------------------------------------------------
+    # MOVEMENT COMPONENTS
+    # --------------------------------------------------------
 
-        f"{start['date']}"
-        " → "
-        f"{end['date']}"
-    )
-
-
-    # Do not claim meaningful direction
-    # for very small movement.
-
-    if distance >= 2.0:
-
-
-        bearing = calculate_bearing(
+    north_km, east_km = (
+        movement_components(
 
             start[
                 "lat"
@@ -2317,7 +2450,103 @@ if len(
                 "lon"
             ]
         )
+    )
 
+
+    # --------------------------------------------------------
+    # TEXT
+    # --------------------------------------------------------
+
+    distance_text = (
+        f"{distance:.2f} km"
+    )
+
+
+    bearing_text = (
+        f"{bearing:.1f}°"
+    )
+
+
+    period_text = (
+
+        f"{start['date']}"
+        " → "
+        f"{end['date']}"
+    )
+
+
+    start_point_text = (
+
+        f"{start['lat']:.4f}, "
+        f"{start['lon']:.4f}"
+    )
+
+
+    end_point_text = (
+
+        f"{end['lat']:.4f}, "
+        f"{end['lon']:.4f}"
+    )
+
+
+    # --------------------------------------------------------
+    # NORTH / SOUTH
+    # --------------------------------------------------------
+
+    if north_km > 0:
+
+        north_south_text = (
+            f"{abs(north_km):.2f} km North"
+        )
+
+
+    elif north_km < 0:
+
+        north_south_text = (
+            f"{abs(north_km):.2f} km South"
+        )
+
+
+    else:
+
+        north_south_text = (
+            "0.00 km"
+        )
+
+
+    # --------------------------------------------------------
+    # EAST / WEST
+    # --------------------------------------------------------
+
+    if east_km > 0:
+
+        east_west_text = (
+            f"{abs(east_km):.2f} km East"
+        )
+
+
+    elif east_km < 0:
+
+        east_west_text = (
+            f"{abs(east_km):.2f} km West"
+        )
+
+
+    else:
+
+        east_west_text = (
+            "0.00 km"
+        )
+
+
+    # --------------------------------------------------------
+    # DIRECTION
+    #
+    # Ignore very small shifts because the Copernicus
+    # grid is relatively coarse.
+    # --------------------------------------------------------
+
+    if distance >= 2.0:
 
         direction_text = (
             direction_name(
@@ -2326,16 +2555,27 @@ if len(
         )
 
 
-shift1, shift2, shift3 = (
+    else:
+
+        direction_text = (
+            "No clear shift"
+        )
+
+
+# ============================================================
+# MAIN MOVEMENT METRICS
+# ============================================================
+
+shift1, shift2, shift3, shift4 = (
     st.columns(
-        3
+        4
     )
 )
 
 
 shift1.metric(
 
-    "Habitat Direction",
+    "Predicted Direction",
 
     direction_text
 )
@@ -2343,7 +2583,7 @@ shift1.metric(
 
 shift2.metric(
 
-    "Habitat Centre Shift",
+    "Total Shift",
 
     distance_text
 )
@@ -2351,16 +2591,89 @@ shift2.metric(
 
 shift3.metric(
 
+    "Bearing",
+
+    bearing_text
+)
+
+
+shift4.metric(
+
     "Forecast Period",
 
     period_text
 )
 
 
+# ============================================================
+# MOVEMENT BREAKDOWN
+# ============================================================
+
+st.markdown(
+    "#### Movement Breakdown"
+)
+
+
+movement1, movement2 = (
+    st.columns(
+        2
+    )
+)
+
+
+movement1.metric(
+
+    "North / South",
+
+    north_south_text
+)
+
+
+movement2.metric(
+
+    "East / West",
+
+    east_west_text
+)
+
+
+# ============================================================
+# HABITAT CENTRE POSITIONS
+# ============================================================
+
+st.markdown(
+    "#### Habitat-Centre Positions"
+)
+
+
+position1, position2 = (
+    st.columns(
+        2
+    )
+)
+
+
+position1.metric(
+
+    "Current / Start Position",
+
+    start_point_text
+)
+
+
+position2.metric(
+
+    "+72 h Forecast Position",
+
+    end_point_text
+)
+
+
 st.info(
-    "This represents the forecast movement of the "
-    "highest-suitability habitat. It does not mean "
-    "individual fish are being directly tracked."
+    "This is the forecast shift of the relatively "
+    "highest-suitability habitat within the study area. "
+    "It does not mean individual anchoveta schools are "
+    "being directly tracked."
 )
 
 
@@ -2422,6 +2735,18 @@ Habitat Suitability Index:
 Predicted suitable-habitat shift:
 {direction_text}
 
+Estimated habitat shift:
+{distance_text}
+
+Bearing:
+{bearing_text}
+
+North / South movement:
+{north_south_text}
+
+East / West movement:
+{east_west_text}
+
 Sea temperature:
 {best['temperature']:.1f} °C
 
@@ -2440,7 +2765,7 @@ st.text_area(
 
     sms_message,
 
-    height=250
+    height=360
 )
 
 
@@ -2558,6 +2883,27 @@ with st.expander(
 ### Environmental context
 
 - SST anomaly
+
+### Habitat-shift calculation
+
+The app calculates the centre of the top 25% highest-scoring
+habitat cells for each forecast day.
+
+It then compares the current habitat centre with the final
+forecast habitat centre.
+
+The output includes:
+
+- Total distance
+- Compass direction
+- Bearing
+- North / south movement
+- East / west movement
+- Start coordinates
+- Forecast coordinates
+
+This represents a shift in predicted habitat suitability,
+not direct tracking of fish.
 
 ### Not yet integrated
 
