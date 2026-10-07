@@ -19,7 +19,7 @@ import xarray as xr
 st.set_page_config(
     page_title="E-AWARE",
     page_icon="🐟",
-    layout="wide"
+    layout="wide",
 )
 
 st.title("🐟 E-AWARE")
@@ -34,7 +34,6 @@ st.info(
 
 # ============================================================
 # STUDY AREA
-# Costanera corridor, northern Peru
 # ============================================================
 
 MIN_LON = -81.50
@@ -49,18 +48,18 @@ COMMUNITIES = pd.DataFrame(
         {
             "name": "Lobitos",
             "lat": -4.4567,
-            "lon": -81.2849
+            "lon": -81.2849,
         },
         {
             "name": "Siches",
             "lat": -4.4890,
-            "lon": -81.2680
+            "lon": -81.2680,
         },
         {
             "name": "Piedritas",
             "lat": -4.5190,
-            "lon": -81.2630
-        }
+            "lon": -81.2630,
+        },
     ]
 )
 
@@ -90,12 +89,12 @@ def get_credentials():
 
     username = st.secrets.get(
         "COPERNICUS_USERNAME",
-        ""
+        "",
     )
 
     password = st.secrets.get(
         "COPERNICUS_PASSWORD",
-        ""
+        "",
     )
 
     if not username or not password:
@@ -114,7 +113,7 @@ def get_credentials():
 
 def prepare_dataframe(
     dataframe,
-    variable_name
+    variable_name,
 ):
 
     df = dataframe.copy()
@@ -129,7 +128,7 @@ def prepare_dataframe(
 
         if column_lower in [
             "latitude",
-            "lat"
+            "lat",
         ]:
 
             rename_map[
@@ -138,7 +137,7 @@ def prepare_dataframe(
 
         elif column_lower in [
             "longitude",
-            "lon"
+            "lon",
         ]:
 
             rename_map[
@@ -153,7 +152,7 @@ def prepare_dataframe(
         "time",
         "lat",
         "lon",
-        variable_name
+        variable_name,
     ]
 
     missing = [
@@ -165,7 +164,8 @@ def prepare_dataframe(
     if missing:
 
         raise RuntimeError(
-            f"Missing columns for {variable_name}: {missing}"
+            f"Missing columns for "
+            f"{variable_name}: {missing}"
         )
 
     df = df.dropna(
@@ -174,31 +174,59 @@ def prepare_dataframe(
         ]
     ).copy()
 
-    df["date"] = (
+    df[
+        "date"
+    ] = (
         pd.to_datetime(
-            df["time"]
+            df[
+                "time"
+            ]
         )
         .dt.date
     )
 
-    df["lat"] = (
-        df["lat"]
-        .astype(float)
+    df[
+        "lat"
+    ] = (
+        df[
+            "lat"
+        ]
+        .astype(
+            float
+        )
     )
 
-    df["lon"] = (
-        df["lon"]
-        .astype(float)
+    df[
+        "lon"
+    ] = (
+        df[
+            "lon"
+        ]
+        .astype(
+            float
+        )
     )
 
-    df["lat_key"] = (
-        df["lat"]
-        .round(3)
+    df[
+        "lat_key"
+    ] = (
+        df[
+            "lat"
+        ]
+        .round(
+            3
+        )
     )
 
-    df["lon_key"] = (
-        df["lon"]
-        .round(3)
+    df[
+        "lon_key"
+    ] = (
+        df[
+            "lon"
+        ]
+        .round(
+            3
+        )
     )
 
     return df[
@@ -208,7 +236,7 @@ def prepare_dataframe(
             "lon",
             "lat_key",
             "lon_key",
-            variable_name
+            variable_name,
         ]
     ]
 
@@ -223,7 +251,7 @@ def download_subset(
     output_name,
     start_date,
     end_date,
-    use_depth=True
+    use_depth=True,
 ):
 
     username, password = (
@@ -246,7 +274,9 @@ def download_subset(
                 dataset_id,
 
             "variables":
-                [variable],
+                [
+                    variable
+                ],
 
             "minimum_longitude":
                 MIN_LON,
@@ -282,7 +312,7 @@ def download_subset(
                 temp_dir,
 
             "disable_progress_bar":
-                True
+                True,
         }
 
         if use_depth:
@@ -295,13 +325,11 @@ def download_subset(
                 "maximum_depth"
             ] = 1
 
-
         response = (
             copernicusmarine.subset(
                 **subset_arguments
             )
         )
-
 
         possible_path = Path(
             str(
@@ -309,10 +337,11 @@ def download_subset(
             )
         )
 
-
         if possible_path.exists():
 
-            file_path = possible_path
+            file_path = (
+                possible_path
+            )
 
         else:
 
@@ -323,7 +352,6 @@ def download_subset(
                 /
                 filename
             )
-
 
         if not file_path.exists():
 
@@ -336,13 +364,12 @@ def download_subset(
                 )
             )
 
-            if len(
-                netcdf_files
-            ) == 0:
+            if not netcdf_files:
 
                 raise RuntimeError(
-                    f"{output_name} download completed "
-                    "but no NetCDF file was found."
+                    f"{output_name} download "
+                    "completed but no NetCDF "
+                    "file was found."
                 )
 
             file_path = (
@@ -351,7 +378,6 @@ def download_subset(
                 ]
             )
 
-
         with xr.open_dataset(
             file_path
         ) as ds:
@@ -359,17 +385,16 @@ def download_subset(
             if variable not in ds.data_vars:
 
                 raise RuntimeError(
-                    f"Variable '{variable}' was not found "
-                    f"in the {output_name} file."
+                    f"Variable '{variable}' "
+                    f"was not found in the "
+                    f"{output_name} file."
                 )
-
 
             data_array = (
                 ds[
                     variable
                 ]
             )
-
 
             if "depth" in data_array.dims:
 
@@ -379,11 +404,9 @@ def download_subset(
                     )
                 )
 
-
             data_array = (
                 data_array.load()
             )
-
 
             dataframe = (
                 data_array
@@ -393,24 +416,23 @@ def download_subset(
                 .reset_index()
             )
 
-
     return prepare_dataframe(
         dataframe,
-        output_name
+        output_name,
     )
 
 
 # ============================================================
-# LOAD TEMPERATURE
+# TEMPERATURE
 # ============================================================
 
 @st.cache_data(
     ttl=1800,
-    show_spinner=False
+    show_spinner=False,
 )
 def load_temperature(
     start_date,
-    end_date
+    end_date,
 ):
 
     return download_subset(
@@ -430,21 +452,21 @@ def load_temperature(
         end_date=
             end_date,
 
-        use_depth=True
+        use_depth=True,
     )
 
 
 # ============================================================
-# LOAD SALINITY
+# SALINITY
 # ============================================================
 
 @st.cache_data(
     ttl=1800,
-    show_spinner=False
+    show_spinner=False,
 )
 def load_salinity(
     start_date,
-    end_date
+    end_date,
 ):
 
     return download_subset(
@@ -464,21 +486,21 @@ def load_salinity(
         end_date=
             end_date,
 
-        use_depth=True
+        use_depth=True,
     )
 
 
 # ============================================================
-# LOAD SST ANOMALY
+# SST ANOMALY
 # ============================================================
 
 @st.cache_data(
     ttl=1800,
-    show_spinner=False
+    show_spinner=False,
 )
 def load_sst_anomaly(
     start_date,
-    end_date
+    end_date,
 ):
 
     return download_subset(
@@ -498,30 +520,32 @@ def load_sst_anomaly(
         end_date=
             end_date,
 
-        use_depth=False
+        use_depth=False,
     )
 
 
 # ============================================================
-# MERGE DATASETS
+# MERGE COPERNICUS DATA
 # ============================================================
 
 def merge_ocean_data(
     temperature,
     salinity,
-    anomaly
+    anomaly,
 ):
 
     keys = [
         "date",
         "lat_key",
-        "lon_key"
+        "lon_key",
     ]
 
-
     merged = (
+
         temperature
+
         .merge(
+
             salinity[
                 keys
                 +
@@ -529,10 +553,14 @@ def merge_ocean_data(
                     "salinity"
                 ]
             ],
+
             on=keys,
-            how="inner"
+
+            how="inner",
         )
+
         .merge(
+
             anomaly[
                 keys
                 +
@@ -540,19 +568,20 @@ def merge_ocean_data(
                     "sst_anomaly"
                 ]
             ],
+
             on=keys,
-            how="left"
+
+            how="left",
         )
     )
-
 
     if merged.empty:
 
         raise RuntimeError(
-            "Copernicus data downloaded successfully, "
-            "but no matching grid cells were found."
+            "Copernicus data downloaded "
+            "successfully, but no matching "
+            "grid cells were found."
         )
-
 
     return merged
 
@@ -562,15 +591,14 @@ def merge_ocean_data(
 # ============================================================
 
 def habitat_reference(
-    month
+    month,
 ):
 
-    # Southern Hemisphere summer
-
+    # Southern Hemisphere Summer
     if month in [
         12,
         1,
-        2
+        2,
     ]:
 
         return {
@@ -588,16 +616,14 @@ def habitat_reference(
                 32.30,
 
             "sal_max":
-                35.14
+                35.14,
         }
 
-
-    # Southern Hemisphere winter
-
-    elif month in [
+    # Southern Hemisphere Winter
+    if month in [
         6,
         7,
-        8
+        8,
     ]:
 
         return {
@@ -615,32 +641,28 @@ def habitat_reference(
                 34.81,
 
             "sal_max":
-                35.12
+                35.12,
         }
-
 
     # Transitional months
-    # Temporary V1 approximation
+    # MVP approximation only
+    return {
 
-    else:
+        "season":
+            "Transition (MVP)",
 
-        return {
+        "temp_min":
+            14.5,
 
-            "season":
-                "Transition (MVP)",
+        "temp_max":
+            23.7,
 
-            "temp_min":
-                14.5,
+        "sal_min":
+            32.30,
 
-            "temp_max":
-                23.7,
-
-            "sal_min":
-                32.30,
-
-            "sal_max":
-                35.14
-        }
+        "sal_max":
+            35.14,
+    }
 
 
 # ============================================================
@@ -651,20 +673,18 @@ def range_score(
     values,
     minimum,
     maximum,
-    shoulder
+    shoulder,
 ):
 
     values = np.asarray(
         values,
-        dtype=float
+        dtype=float,
     )
-
 
     score = np.ones_like(
         values,
-        dtype=float
+        dtype=float,
     )
-
 
     below = (
         values
@@ -672,13 +692,11 @@ def range_score(
         minimum
     )
 
-
     above = (
         values
         >
         maximum
     )
-
 
     score[
         below
@@ -700,7 +718,6 @@ def range_score(
         shoulder
     )
 
-
     score[
         above
     ] = (
@@ -721,11 +738,10 @@ def range_score(
         shoulder
     )
 
-
     return np.clip(
         score,
         0,
-        1
+        1,
     )
 
 
@@ -735,17 +751,18 @@ def range_score(
 
 def calculate_hsi(
     dataframe,
-    month
+    month,
 ):
 
-    df = dataframe.copy()
+    df = (
+        dataframe.copy()
+    )
 
     reference = (
         habitat_reference(
             month
         )
     )
-
 
     df[
         "temperature_score"
@@ -763,9 +780,8 @@ def calculate_hsi(
             "temp_max"
         ],
 
-        shoulder=2.0
+        shoulder=2.0,
     )
-
 
     df[
         "salinity_score"
@@ -783,17 +799,16 @@ def calculate_hsi(
             "sal_max"
         ],
 
-        shoulder=0.5
+        shoulder=0.5,
     )
 
-
     # ========================================================
-    # MVP V1 MODEL
+    # MVP V1
     #
-    # 50% temperature suitability
-    # 50% salinity suitability
+    # 50% Temperature
+    # 50% Salinity
     #
-    # These weights are temporary.
+    # Temporary engineering weights
     # ========================================================
 
     df[
@@ -816,36 +831,41 @@ def calculate_hsi(
 
     ).clip(
         0,
-        1
+        1,
     )
-
 
     return df
 
 
 # ============================================================
-# HSI CLASS
+# HSI CLASSIFICATION
 # ============================================================
 
 def hsi_class(
-    value
+    value,
 ):
 
     if value >= 0.80:
 
-        return "Very High"
+        return (
+            "Very High"
+        )
 
-    elif value >= 0.60:
+    if value >= 0.60:
 
-        return "High"
+        return (
+            "High"
+        )
 
-    elif value >= 0.35:
+    if value >= 0.35:
 
-        return "Moderate"
+        return (
+            "Moderate"
+        )
 
-    else:
-
-        return "Low"
+    return (
+        "Low"
+    )
 
 
 # ============================================================
@@ -853,20 +873,15 @@ def hsi_class(
 # ============================================================
 
 def habitat_centroid(
-    dataframe
+    dataframe,
 ):
 
     if dataframe.empty:
 
         return None
 
-
-    # Use the best 25% of cells on EACH day.
-    #
-    # We deliberately do NOT require HSI >= 0.60.
-    # This means even if conditions are only moderate,
-    # we can still track where the relatively best
-    # habitat is moving.
+    # Use best 25% of cells every day.
+    # No minimum HSI threshold.
 
     threshold = float(
         dataframe[
@@ -876,7 +891,6 @@ def habitat_centroid(
             0.75
         )
     )
-
 
     best_area = dataframe[
 
@@ -889,18 +903,16 @@ def habitat_centroid(
 
     ].copy()
 
-
     if best_area.empty:
 
         best_area = (
             dataframe
             .nlargest(
                 1,
-                "hsi"
+                "hsi",
             )
             .copy()
         )
-
 
     weights = np.clip(
 
@@ -911,9 +923,8 @@ def habitat_centroid(
 
         0.01,
 
-        None
+        None,
     )
-
 
     latitude = np.average(
 
@@ -921,9 +932,8 @@ def habitat_centroid(
             "lat"
         ],
 
-        weights=weights
+        weights=weights,
     )
-
 
     longitude = np.average(
 
@@ -931,9 +941,8 @@ def habitat_centroid(
             "lon"
         ],
 
-        weights=weights
+        weights=weights,
     )
-
 
     return (
         float(
@@ -941,25 +950,24 @@ def habitat_centroid(
         ),
         float(
             longitude
-        )
+        ),
     )
 
 
 # ============================================================
-# DISTANCE BETWEEN TWO POINTS
+# DISTANCE
 # ============================================================
 
 def haversine(
     lat1,
     lon1,
     lat2,
-    lon2
+    lon2,
 ):
 
     earth_radius = (
         6371.0
     )
-
 
     phi1 = math.radians(
         lat1
@@ -969,20 +977,17 @@ def haversine(
         lat2
     )
 
-
     delta_phi = math.radians(
         lat2
         -
         lat1
     )
 
-
     delta_lambda = math.radians(
         lon2
         -
         lon1
     )
-
 
     a = (
 
@@ -1015,7 +1020,6 @@ def haversine(
         ** 2
     )
 
-
     return (
 
         2
@@ -1040,7 +1044,7 @@ def calculate_bearing(
     lat1,
     lon1,
     lat2,
-    lon2
+    lon2,
 ):
 
     phi1 = math.radians(
@@ -1051,13 +1055,11 @@ def calculate_bearing(
         lat2
     )
 
-
     delta_lambda = math.radians(
         lon2
         -
         lon1
     )
-
 
     x = (
 
@@ -1071,7 +1073,6 @@ def calculate_bearing(
             phi2
         )
     )
-
 
     y = (
 
@@ -1104,15 +1105,13 @@ def calculate_bearing(
         )
     )
 
-
     bearing = math.degrees(
 
         math.atan2(
             x,
-            y
+            y,
         )
     )
-
 
     return (
 
@@ -1128,7 +1127,7 @@ def calculate_bearing(
 # ============================================================
 
 def direction_name(
-    bearing
+    bearing,
 ):
 
     directions = [
@@ -1147,9 +1146,8 @@ def direction_name(
 
         "West ←",
 
-        "North-West ↖"
+        "North-West ↖",
     ]
-
 
     index = int(
 
@@ -1164,24 +1162,21 @@ def direction_name(
 
     ) % 8
 
-
     return directions[
         index
     ]
 
 
 # ============================================================
-# NORTH/SOUTH + EAST/WEST MOVEMENT
+# MOVEMENT COMPONENTS
 # ============================================================
 
 def movement_components(
     lat1,
     lon1,
     lat2,
-    lon2
+    lon2,
 ):
-
-    # Approximately 111.32 km per latitude degree
 
     north_km = (
 
@@ -1191,7 +1186,6 @@ def movement_components(
 
     ) * 111.32
 
-
     mean_latitude = math.radians(
 
         (
@@ -1199,10 +1193,10 @@ def movement_components(
             +
             lat2
         )
+
         /
         2
     )
-
 
     east_km = (
 
@@ -1221,10 +1215,9 @@ def movement_components(
         )
     )
 
-
     return (
         north_km,
-        east_km
+        east_km,
     )
 
 
@@ -1238,52 +1231,43 @@ with st.sidebar:
         "E-AWARE Controls"
     )
 
-
     st.markdown(
         "### Study Area"
     )
-
 
     st.write(
         "Costanera Corridor"
     )
 
-
     st.write(
         "• Lobitos"
     )
-
 
     st.write(
         "• Siches"
     )
 
-
     st.write(
         "• Piedritas"
     )
 
-
     st.divider()
-
 
     selected_date = st.date_input(
 
         "Ocean Date",
 
-        value=date.today()
+        value=date.today(),
     )
-
 
     st.caption(
-        "E-AWARE requests the selected day "
-        "plus the following 72 hours."
+        "E-AWARE requests the selected "
+        "day plus the following 72 hours."
     )
-
 
     if st.button(
         "🔄 Refresh Data",
-        use_container_width=True
+        use_container_width=True,
     ):
 
         st.cache_data.clear()
@@ -1306,26 +1290,23 @@ end_date = (
 
 
 # ============================================================
-# COPERNICUS CONNECTION
+# LOAD COPERNICUS DATA
 # ============================================================
 
 try:
 
     with st.status(
         "Connecting to Copernicus Marine...",
-        expanded=True
+        expanded=True,
     ) as status:
-
 
         status.write(
             "🔐 Checking Copernicus credentials..."
         )
 
-
         username, password = (
             get_credentials()
         )
-
 
         credential_check = (
             copernicusmarine.login(
@@ -1334,106 +1315,78 @@ try:
 
                 password=password,
 
-                check_credentials_valid=True
+                check_credentials_valid=True,
             )
         )
-
 
         if not credential_check:
 
             raise RuntimeError(
-                "Copernicus rejected the supplied credentials."
+                "Copernicus rejected the "
+                "supplied credentials."
             )
-
 
         status.write(
             "✅ Credentials valid"
         )
 
-
-        # ----------------------------------------------------
-        # TEMPERATURE
-        # ----------------------------------------------------
-
         status.write(
             "🌡️ 1/3 Downloading temperature..."
         )
-
 
         temperature_data = (
             load_temperature(
 
                 selected_date,
 
-                end_date
+                end_date,
             )
         )
-
 
         status.write(
             f"✅ Temperature loaded "
             f"({len(temperature_data)} records)"
         )
 
-
-        # ----------------------------------------------------
-        # SALINITY
-        # ----------------------------------------------------
-
         status.write(
             "🧂 2/3 Downloading salinity..."
         )
-
 
         salinity_data = (
             load_salinity(
 
                 selected_date,
 
-                end_date
+                end_date,
             )
         )
-
 
         status.write(
             f"✅ Salinity loaded "
             f"({len(salinity_data)} records)"
         )
 
-
-        # ----------------------------------------------------
-        # SST ANOMALY
-        # ----------------------------------------------------
-
         status.write(
             "🌊 3/3 Downloading SST anomaly..."
         )
-
 
         anomaly_data = (
             load_sst_anomaly(
 
                 selected_date,
 
-                end_date
+                end_date,
             )
         )
-
 
         status.write(
             f"✅ SST anomaly loaded "
             f"({len(anomaly_data)} records)"
         )
 
-
-        # ----------------------------------------------------
-        # MERGE
-        # ----------------------------------------------------
-
         status.write(
             "🔗 Combining ocean datasets..."
         )
-
 
         ocean = merge_ocean_data(
 
@@ -1441,9 +1394,8 @@ try:
 
             salinity_data,
 
-            anomaly_data
+            anomaly_data,
         )
-
 
         status.update(
 
@@ -1454,28 +1406,26 @@ try:
                 "complete",
 
             expanded=
-                False
+                False,
         )
 
 
 except Exception as error:
 
     st.error(
-        "❌ E-AWARE could not load Copernicus data."
+        "❌ E-AWARE could not load "
+        "Copernicus data."
     )
-
 
     st.write(
         "Technical error:"
     )
-
 
     st.code(
         str(
             error
         )
     )
-
 
     st.stop()
 
@@ -1505,7 +1455,7 @@ if len(
 
 
 # ============================================================
-# SELECT CURRENT DATE
+# CURRENT DATE
 # ============================================================
 
 if selected_date in available_dates:
@@ -1539,17 +1489,11 @@ current_data = ocean[
 ].copy()
 
 
-# ============================================================
-# CURRENT HSI
-# ============================================================
+current_data = calculate_hsi(
 
-current_data = (
-    calculate_hsi(
+    current_data,
 
-        current_data,
-
-        current_date.month
-    )
+    current_date.month,
 )
 
 
@@ -1577,16 +1521,14 @@ best = current_data.loc[
 ]
 
 
-reference = (
-    habitat_reference(
+reference = habitat_reference(
 
-        current_date.month
-    )
+    current_date.month
 )
 
 
 # ============================================================
-# DASHBOARD METRICS
+# CURRENT CONDITIONS
 # ============================================================
 
 st.subheader(
@@ -1647,13 +1589,14 @@ metric4.metric(
 
 
 st.caption(
-    "Copernicus provides the environmental inputs. "
-    "E-AWARE calculates the Habitat Suitability Index."
+    "Copernicus provides the environmental "
+    "inputs. E-AWARE calculates the "
+    "Habitat Suitability Index."
 )
 
 
 # ============================================================
-# MAP
+# CURRENT HABITAT MAP
 # ============================================================
 
 st.subheader(
@@ -1669,10 +1612,10 @@ map_mode = st.radio(
         "Habitat Suitability",
         "Temperature",
         "SST Anomaly",
-        "Salinity"
+        "Salinity",
     ],
 
-    horizontal=True
+    horizontal=True,
 )
 
 
@@ -1705,7 +1648,6 @@ if map_mode == (
         220
     )
 
-
     map_data[
         "g"
     ] = (
@@ -1717,7 +1659,6 @@ if map_mode == (
         *
         210
     )
-
 
     map_data[
         "b"
@@ -1734,7 +1675,6 @@ elif map_mode == (
         ]
     )
 
-
     spread = max(
 
         float(
@@ -1743,9 +1683,8 @@ elif map_mode == (
             values.min()
         ),
 
-        0.01
+        0.01,
     )
-
 
     normalised = (
 
@@ -1754,7 +1693,6 @@ elif map_mode == (
         values.min()
 
     ) / spread
-
 
     map_data[
         "r"
@@ -1768,11 +1706,9 @@ elif map_mode == (
         normalised
     )
 
-
     map_data[
         "g"
     ] = 80
-
 
     map_data[
         "b"
@@ -1802,7 +1738,6 @@ elif map_mode == (
         )
     )
 
-
     spread = max(
 
         abs(
@@ -1817,9 +1752,8 @@ elif map_mode == (
             )
         ),
 
-        0.1
+        0.1,
     )
-
 
     normalised = (
 
@@ -1834,7 +1768,6 @@ elif map_mode == (
 
     ) / 2
 
-
     map_data[
         "r"
     ] = (
@@ -1847,11 +1780,9 @@ elif map_mode == (
         normalised
     )
 
-
     map_data[
         "g"
     ] = 100
-
 
     map_data[
         "b"
@@ -1874,7 +1805,6 @@ else:
         ]
     )
 
-
     spread = max(
 
         float(
@@ -1883,9 +1813,8 @@ else:
             values.min()
         ),
 
-        0.001
+        0.001,
     )
-
 
     normalised = (
 
@@ -1895,11 +1824,9 @@ else:
 
     ) / spread
 
-
     map_data[
         "r"
     ] = 50
-
 
     map_data[
         "g"
@@ -1913,14 +1840,13 @@ else:
         normalised
     )
 
-
     map_data[
         "b"
     ] = 220
 
 
 # ============================================================
-# OCEAN LAYER
+# CURRENT MAP LAYERS
 # ============================================================
 
 ocean_layer = pdk.Layer(
@@ -1931,14 +1857,14 @@ ocean_layer = pdk.Layer(
 
     get_position=[
         "lon",
-        "lat"
+        "lat",
     ],
 
     get_fill_color=[
         "r",
         "g",
         "b",
-        190
+        190,
     ],
 
     get_radius=700,
@@ -1947,13 +1873,9 @@ ocean_layer = pdk.Layer(
 
     radius_max_pixels=18,
 
-    pickable=True
+    pickable=True,
 )
 
-
-# ============================================================
-# COMMUNITY LAYER
-# ============================================================
 
 community_layer = pdk.Layer(
 
@@ -1963,21 +1885,21 @@ community_layer = pdk.Layer(
 
     get_position=[
         "lon",
-        "lat"
+        "lat",
     ],
 
     get_fill_color=[
         255,
         255,
         255,
-        240
+        240,
     ],
 
     get_line_color=[
         20,
         20,
         20,
-        255
+        255,
     ],
 
     stroked=True,
@@ -1986,39 +1908,36 @@ community_layer = pdk.Layer(
 
     get_radius=350,
 
-    pickable=True
+    pickable=True,
 )
 
-
-# ============================================================
-# DISPLAY MAP
-# ============================================================
 
 st.pydeck_chart(
 
     pdk.Deck(
 
         map_style=(
+
             "https://basemaps.cartocdn.com/"
             "gl/positron-gl-style/style.json"
         ),
 
-        initial_view_state=(
-            pdk.ViewState(
+        initial_view_state=pdk.ViewState(
 
-                latitude=-4.49,
+            latitude=-4.49,
 
-                longitude=-81.36,
+            longitude=-81.36,
 
-                zoom=9.5,
+            zoom=9.5,
 
-                pitch=0
-            )
+            pitch=0,
         ),
 
         layers=[
+
             ocean_layer,
-            community_layer
+
+            community_layer,
         ],
 
         tooltip={
@@ -2026,28 +1945,25 @@ st.pydeck_chart(
             "html":
 
                 "<b>{class} Habitat</b><br/>"
-
                 "HSI: {hsi}<br/>"
-
                 "SST: {temperature} °C<br/>"
-
                 "SST anomaly: {sst_anomaly} °C<br/>"
-
                 "Salinity: {salinity} PSU"
-        }
+        },
     ),
 
-    use_container_width=True
+    use_container_width=True,
 )
 
 
 st.caption(
-    "Only valid Copernicus ocean cells are included."
+    "Only valid Copernicus ocean cells "
+    "are included."
 )
 
 
 # ============================================================
-# HIGHEST RELATIVE HABITAT SUITABILITY
+# HIGHEST RELATIVE HABITAT
 # ============================================================
 
 st.subheader(
@@ -2091,9 +2007,10 @@ zone3.metric(
 
 
 st.caption(
-    "This is the highest-scoring cell within the current "
-    "study area. It does not necessarily mean that conditions "
-    "are highly suitable overall."
+    "This is the highest-scoring cell "
+    "within the current study area. "
+    "It does not necessarily mean that "
+    "conditions are highly suitable overall."
 )
 
 
@@ -2146,9 +2063,10 @@ reference3.metric(
 
 
 st.warning(
-    "MVP V1 currently uses temperature and salinity "
-    "with equal weighting. The final model will later "
-    "be trained and validated using anchoveta observations."
+    "MVP V1 currently uses temperature "
+    "and salinity with equal weighting. "
+    "The final model will later be trained "
+    "and validated using anchoveta observations."
 )
 
 
@@ -2162,7 +2080,6 @@ forecast_results = []
 
 
 for forecast_date in available_dates:
-
 
     forecast_frame = ocean[
 
@@ -2181,7 +2098,7 @@ for forecast_date in available_dates:
 
             forecast_frame,
 
-            forecast_date.month
+            forecast_date.month,
         )
     )
 
@@ -2196,6 +2113,7 @@ for forecast_date in available_dates:
     if centre is not None:
 
         forecast_centres.append(
+
             {
                 "date":
                     forecast_date,
@@ -2208,7 +2126,7 @@ for forecast_date in available_dates:
                 "lon":
                     centre[
                         1
-                    ]
+                    ],
             }
         )
 
@@ -2224,49 +2142,59 @@ for forecast_date in available_dates:
 
 
     forecast_results.append(
+
         {
             "Date":
                 forecast_date,
 
             "Highest HSI":
                 round(
+
                     float(
                         best_forecast[
                             "hsi"
                         ]
                     ),
-                    2
+
+                    2,
                 ),
 
             "Temperature °C":
                 round(
+
                     float(
                         best_forecast[
                             "temperature"
                         ]
                     ),
-                    2
+
+                    2,
                 ),
 
             "Salinity PSU":
                 round(
+
                     float(
                         best_forecast[
                             "salinity"
                         ]
                     ),
-                    2
+
+                    2,
                 ),
 
             "SST Anomaly °C":
                 (
+
                     round(
+
                         float(
                             best_forecast[
                                 "sst_anomaly"
                             ]
                         ),
-                        2
+
+                        2,
                     )
 
                     if pd.notna(
@@ -2280,11 +2208,12 @@ for forecast_date in available_dates:
 
             "Habitat Centre Lat":
                 (
+
                     round(
                         centre[
                             0
                         ],
-                        4
+                        4,
                     )
 
                     if centre is not None
@@ -2294,23 +2223,24 @@ for forecast_date in available_dates:
 
             "Habitat Centre Lon":
                 (
+
                     round(
                         centre[
                             1
                         ],
-                        4
+                        4,
                     )
 
                     if centre is not None
 
                     else None
-                )
+                ),
         }
     )
 
 
 # ============================================================
-# PREDICTED HABITAT SHIFT
+# HABITAT SHIFT
 # ============================================================
 
 st.subheader(
@@ -2322,56 +2252,52 @@ direction_text = (
     "Unavailable"
 )
 
-
 distance_text = (
     "—"
 )
-
 
 bearing_text = (
     "—"
 )
 
-
 period_text = (
     "Insufficient forecast data"
 )
-
 
 start_point_text = (
     "—"
 )
 
-
 end_point_text = (
     "—"
 )
 
-
 north_south_text = (
     "—"
 )
-
 
 east_west_text = (
     "—"
 )
 
 
+start = None
+end = None
+
+distance = None
+bearing = None
+
+
 if len(
     forecast_centres
 ) >= 2:
 
-
-    # The first centre now represents the selected/current day.
     start = (
         forecast_centres[
             0
         ]
     )
 
-
-    # Last available centre should normally represent +72 h.
     end = (
         forecast_centres[
             -1
@@ -2379,9 +2305,9 @@ if len(
     )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # TOTAL DISTANCE
-    # --------------------------------------------------------
+    # ========================================================
 
     distance = haversine(
 
@@ -2399,13 +2325,13 @@ if len(
 
         end[
             "lon"
-        ]
+        ],
     )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # BEARING
-    # --------------------------------------------------------
+    # ========================================================
 
     bearing = calculate_bearing(
 
@@ -2423,13 +2349,13 @@ if len(
 
         end[
             "lon"
-        ]
+        ],
     )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # MOVEMENT COMPONENTS
-    # --------------------------------------------------------
+    # ========================================================
 
     north_km, east_km = (
         movement_components(
@@ -2448,39 +2374,31 @@ if len(
 
             end[
                 "lon"
-            ]
+            ],
         )
     )
 
-
-    # --------------------------------------------------------
-    # TEXT
-    # --------------------------------------------------------
 
     distance_text = (
         f"{distance:.2f} km"
     )
 
-
     bearing_text = (
         f"{bearing:.1f}°"
     )
 
-
     period_text = (
 
-        f"{start['date']}"
-        " → "
-        f"{end['date']}"
+        f"{start['date'].strftime('%d %b %Y')} "
+        f"→ "
+        f"{end['date'].strftime('%d %b %Y')}"
     )
-
 
     start_point_text = (
 
         f"{start['lat']:.4f}, "
         f"{start['lon']:.4f}"
     )
-
 
     end_point_text = (
 
@@ -2489,23 +2407,23 @@ if len(
     )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # NORTH / SOUTH
-    # --------------------------------------------------------
+    # ========================================================
 
     if north_km > 0:
 
         north_south_text = (
+
             f"{abs(north_km):.2f} km North"
         )
-
 
     elif north_km < 0:
 
         north_south_text = (
+
             f"{abs(north_km):.2f} km South"
         )
-
 
     else:
 
@@ -2514,23 +2432,23 @@ if len(
         )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # EAST / WEST
-    # --------------------------------------------------------
+    # ========================================================
 
     if east_km > 0:
 
         east_west_text = (
+
             f"{abs(east_km):.2f} km East"
         )
-
 
     elif east_km < 0:
 
         east_west_text = (
+
             f"{abs(east_km):.2f} km West"
         )
-
 
     else:
 
@@ -2539,12 +2457,9 @@ if len(
         )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # DIRECTION
-    #
-    # Ignore very small shifts because the Copernicus
-    # grid is relatively coarse.
-    # --------------------------------------------------------
+    # ========================================================
 
     if distance >= 2.0:
 
@@ -2554,7 +2469,6 @@ if len(
             )
         )
 
-
     else:
 
         direction_text = (
@@ -2563,12 +2477,12 @@ if len(
 
 
 # ============================================================
-# MAIN MOVEMENT METRICS
+# SHIFT METRICS
 # ============================================================
 
-shift1, shift2, shift3, shift4 = (
+shift1, shift2, shift3 = (
     st.columns(
-        4
+        3
     )
 )
 
@@ -2597,11 +2511,11 @@ shift3.metric(
 )
 
 
-shift4.metric(
+# Full width so it does not get cut off
+st.markdown(
 
-    "Forecast Period",
-
-    period_text
+    f"**Forecast Period:** "
+    f"{period_text}"
 )
 
 
@@ -2670,15 +2584,420 @@ position2.metric(
 
 
 st.info(
-    "This is the forecast shift of the relatively "
-    "highest-suitability habitat within the study area. "
-    "It does not mean individual anchoveta schools are "
-    "being directly tracked."
+    "This is the forecast shift of the "
+    "relatively highest-suitability habitat "
+    "within the study area. It does not mean "
+    "individual anchoveta schools are being "
+    "directly tracked."
 )
 
 
 # ============================================================
-# 72-HOUR FORECAST
+# HABITAT SHIFT MAP
+# ============================================================
+
+st.markdown(
+    "#### 🗺️ Habitat Shift Map"
+)
+
+
+if (
+    start is not None
+    and
+    end is not None
+):
+
+    shift_path_data = [
+
+        {
+            "path":
+                [
+                    [
+                        start[
+                            "lon"
+                        ],
+                        start[
+                            "lat"
+                        ],
+                    ],
+
+                    [
+                        end[
+                            "lon"
+                        ],
+                        end[
+                            "lat"
+                        ],
+                    ],
+                ],
+
+            "name":
+                (
+                    f"{direction_text} • "
+                    f"{distance_text}"
+                ),
+        }
+    ]
+
+
+    start_marker = pd.DataFrame(
+
+        [
+            {
+                "label":
+                    "Current habitat centre",
+
+                "lat":
+                    start[
+                        "lat"
+                    ],
+
+                "lon":
+                    start[
+                        "lon"
+                    ],
+            }
+        ]
+    )
+
+
+    end_marker = pd.DataFrame(
+
+        [
+            {
+                "label":
+                    "+72 h habitat centre",
+
+                "lat":
+                    end[
+                        "lat"
+                    ],
+
+                "lon":
+                    end[
+                        "lon"
+                    ],
+            }
+        ]
+    )
+
+
+    label_points = pd.DataFrame(
+
+        [
+            {
+                "label":
+                    "START",
+
+                "lat":
+                    start[
+                        "lat"
+                    ],
+
+                "lon":
+                    start[
+                        "lon"
+                    ],
+            },
+
+            {
+                "label":
+                    "+72 h",
+
+                "lat":
+                    end[
+                        "lat"
+                    ],
+
+                "lon":
+                    end[
+                        "lon"
+                    ],
+            },
+        ]
+    )
+
+
+    # ========================================================
+    # SHIFT LINE
+    # ========================================================
+
+    path_layer = pdk.Layer(
+
+        "PathLayer",
+
+        data=
+            shift_path_data,
+
+        get_path=
+            "path",
+
+        get_color=
+            [
+                0,
+                140,
+                255,
+                230,
+            ],
+
+        get_width=
+            5,
+
+        width_min_pixels=
+            5,
+
+        pickable=
+            True,
+    )
+
+
+    # ========================================================
+    # CURRENT POINT
+    # ========================================================
+
+    start_layer = pdk.Layer(
+
+        "ScatterplotLayer",
+
+        data=
+            start_marker,
+
+        get_position=
+            [
+                "lon",
+                "lat",
+            ],
+
+        get_fill_color=
+            [
+                30,
+                190,
+                90,
+                240,
+            ],
+
+        get_line_color=
+            [
+                255,
+                255,
+                255,
+                255,
+            ],
+
+        stroked=
+            True,
+
+        line_width_min_pixels=
+            2,
+
+        get_radius=
+            500,
+
+        radius_min_pixels=
+            8,
+
+        pickable=
+            True,
+    )
+
+
+    # ========================================================
+    # FORECAST POINT
+    # ========================================================
+
+    end_layer = pdk.Layer(
+
+        "ScatterplotLayer",
+
+        data=
+            end_marker,
+
+        get_position=
+            [
+                "lon",
+                "lat",
+            ],
+
+        get_fill_color=
+            [
+                255,
+                145,
+                40,
+                240,
+            ],
+
+        get_line_color=
+            [
+                255,
+                255,
+                255,
+                255,
+            ],
+
+        stroked=
+            True,
+
+        line_width_min_pixels=
+            2,
+
+        get_radius=
+            500,
+
+        radius_min_pixels=
+            8,
+
+        pickable=
+            True,
+    )
+
+
+    # ========================================================
+    # MAP LABELS
+    # ========================================================
+
+    label_layer = pdk.Layer(
+
+        "TextLayer",
+
+        data=
+            label_points,
+
+        get_position=
+            [
+                "lon",
+                "lat",
+            ],
+
+        get_text=
+            "label",
+
+        get_size=
+            16,
+
+        get_color=
+            [
+                20,
+                20,
+                20,
+                255,
+            ],
+
+        get_pixel_offset=
+            [
+                0,
+                -18,
+            ],
+
+        pickable=
+            False,
+    )
+
+
+    shift_mid_lat = (
+
+        start[
+            "lat"
+        ]
+
+        +
+
+        end[
+            "lat"
+        ]
+
+    ) / 2
+
+
+    shift_mid_lon = (
+
+        start[
+            "lon"
+        ]
+
+        +
+
+        end[
+            "lon"
+        ]
+
+    ) / 2
+
+
+    st.pydeck_chart(
+
+        pdk.Deck(
+
+            map_style=(
+
+                "https://basemaps.cartocdn.com/"
+                "gl/positron-gl-style/style.json"
+            ),
+
+            initial_view_state=
+                pdk.ViewState(
+
+                    latitude=
+                        shift_mid_lat,
+
+                    longitude=
+                        shift_mid_lon,
+
+                    zoom=
+                        10.3,
+
+                    pitch=
+                        0,
+                ),
+
+            layers=
+                [
+                    path_layer,
+                    start_layer,
+                    end_layer,
+                    label_layer,
+                ],
+
+            tooltip=
+                {
+                    "html":
+                        "<b>{label}{name}</b>"
+                },
+        ),
+
+        use_container_width=True,
+    )
+
+
+    st.caption(
+        "🟢 Current habitat centre   •   "
+        "🟠 +72 h forecast habitat centre   •   "
+        "🔵 Predicted habitat-centre shift"
+    )
+
+
+    st.markdown(
+
+        f"**E-AWARE interpretation:** "
+        f"The centre of the relatively most "
+        f"suitable anchoveta habitat is forecast "
+        f"to shift **{distance_text} "
+        f"{direction_text.lower()}** over the "
+        f"forecast period, at a bearing of "
+        f"**{bearing_text}**."
+    )
+
+
+else:
+
+    st.warning(
+        "Not enough forecast information "
+        "is available to draw the "
+        "habitat-shift map."
+    )
+
+
+# ============================================================
+# 72-HOUR FORECAST TABLE
 # ============================================================
 
 st.subheader(
@@ -2694,7 +3013,7 @@ st.dataframe(
 
     use_container_width=True,
 
-    hide_index=True
+    hide_index=True,
 )
 
 
@@ -2765,7 +3084,7 @@ st.text_area(
 
     sms_message,
 
-    height=360
+    height=360,
 )
 
 
@@ -2785,6 +3104,7 @@ st.subheader(
 
 
 source_table = pd.DataFrame(
+
     [
         {
             "Source":
@@ -2794,7 +3114,7 @@ source_table = pd.DataFrame(
                 "Analysis / forecast",
 
             "Use":
-                "Sea temperature"
+                "Sea temperature",
         },
 
         {
@@ -2805,7 +3125,7 @@ source_table = pd.DataFrame(
                 "Analysis / forecast",
 
             "Use":
-                "Salinity"
+                "Salinity",
         },
 
         {
@@ -2816,7 +3136,7 @@ source_table = pd.DataFrame(
                 "Analysis / forecast",
 
             "Use":
-                "SST anomaly"
+                "SST anomaly",
         },
 
         {
@@ -2827,7 +3147,7 @@ source_table = pd.DataFrame(
                 "Scientific reference",
 
             "Use":
-                "Habitat environmental ranges"
+                "Habitat environmental ranges",
         },
 
         {
@@ -2838,7 +3158,7 @@ source_table = pd.DataFrame(
                 "Scientific observations",
 
             "Use":
-                "Future training / validation"
+                "Future training / validation",
         },
 
         {
@@ -2849,8 +3169,8 @@ source_table = pd.DataFrame(
                 "Regulatory",
 
             "Use":
-                "Future protection / closure layer"
-        }
+                "Future protection / closure layer",
+        },
     ]
 )
 
@@ -2861,7 +3181,7 @@ st.dataframe(
 
     use_container_width=True,
 
-    hide_index=True
+    hide_index=True,
 )
 
 
@@ -2886,24 +3206,25 @@ with st.expander(
 
 ### Habitat-shift calculation
 
-The app calculates the centre of the top 25% highest-scoring
+E-AWARE calculates the centre of the top 25% highest-scoring
 habitat cells for each forecast day.
 
-It then compares the current habitat centre with the final
-forecast habitat centre.
+It compares the current habitat centre with the final
+72-hour forecast habitat centre.
 
 The output includes:
 
-- Total distance
+- Total shift distance
 - Compass direction
 - Bearing
 - North / south movement
 - East / west movement
-- Start coordinates
+- Current coordinates
 - Forecast coordinates
+- Visual habitat-shift map
 
-This represents a shift in predicted habitat suitability,
-not direct tracking of fish.
+The movement shown is a shift in predicted habitat
+suitability. It is not direct tracking of anchoveta.
 
 ### Not yet integrated
 
