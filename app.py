@@ -23,12 +23,11 @@ st.set_page_config(
 )
 
 st.title("🐟 E-AWARE")
-st.caption("El Niño Adaptive Fisheries Intelligence — MVP V1")
+st.caption("El Niño Adaptive Fisheries Intelligence — MVP V1.1")
 
 st.info(
-    "E-AWARE estimates suitable anchoveta habitat. "
-    "It does not show the exact location or swimming direction "
-    "of individual fish schools."
+    "E-AWARE estimates suitable anchoveta habitat from environmental conditions. "
+    "It does not show the exact location or swimming direction of individual fish schools."
 )
 
 
@@ -38,28 +37,14 @@ st.info(
 
 MIN_LON = -81.50
 MAX_LON = -81.20
-
 MIN_LAT = -4.60
 MAX_LAT = -4.36
 
-
 COMMUNITIES = pd.DataFrame(
     [
-        {
-            "name": "Lobitos",
-            "lat": -4.4567,
-            "lon": -81.2849,
-        },
-        {
-            "name": "Siches",
-            "lat": -4.4890,
-            "lon": -81.2680,
-        },
-        {
-            "name": "Piedritas",
-            "lat": -4.5190,
-            "lon": -81.2630,
-        },
+        {"name": "Lobitos", "lat": -4.4567, "lon": -81.2849},
+        {"name": "Siches", "lat": -4.4890, "lon": -81.2680},
+        {"name": "Piedritas", "lat": -4.5190, "lon": -81.2630},
     ]
 )
 
@@ -68,16 +53,16 @@ COMMUNITIES = pd.DataFrame(
 # COPERNICUS DATASETS
 # ============================================================
 
-TEMPERATURE_DATASET = (
-    "cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m"
-)
+TEMPERATURE_DATASET = "cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m"
 
-SALINITY_DATASET = (
-    "cmems_mod_glo_phy-so_anfc_0.083deg_P1D-m"
-)
+SALINITY_DATASET = "cmems_mod_glo_phy-so_anfc_0.083deg_P1D-m"
 
 SST_ANOMALY_DATASET = (
     "cmems_mod_glo_phy_anfc_0.083deg-sst-anomaly_P1D-m"
+)
+
+OXYGEN_DATASET = (
+    "cmems_mod_glo_bgc-bio_anfc_0.25deg_P1D-m"
 )
 
 
@@ -525,10 +510,67 @@ def load_sst_anomaly(
 
 
 # ============================================================
-# MERGE COPERNICUS DATA
+# DISSOLVED OXYGEN
 # ============================================================
 
-def merge_ocean_data(
+@st.cache_data(
+    ttl=1800,
+    show_spinner=False,
+)
+def load_oxygen(
+    start_date,
+    end_date,
+):
+
+    oxygen = download_subset(
+
+        dataset_id=
+            OXYGEN_DATASET,
+
+        variable=
+            "o2",
+
+        output_name=
+            "oxygen_mmol_m3",
+
+        start_date=
+            start_date,
+
+        end_date=
+            end_date,
+
+        use_depth=True,
+    )
+
+    # Copernicus oxygen:
+    #
+    # mmol/m³
+    #
+    # 1 mmol/m³ = 1 µmol/L
+    #
+    # 1 µmol/L O2
+    # = 0.0223916 mL/L
+
+    oxygen[
+        "oxygen_ml_l"
+    ] = (
+
+        oxygen[
+            "oxygen_mmol_m3"
+        ]
+
+        *
+        0.0223916
+    )
+
+    return oxygen
+
+
+# ============================================================
+# MERGE PHYSICS DATASETS
+# ============================================================
+
+def merge_physics_data(
     temperature,
     salinity,
     anomaly,
@@ -578,12 +620,302 @@ def merge_ocean_data(
     if merged.empty:
 
         raise RuntimeError(
-            "Copernicus data downloaded "
+            "Copernicus physics data downloaded "
             "successfully, but no matching "
             "grid cells were found."
         )
 
     return merged
+
+
+# ============================================================
+# MAP OXYGEN GRID TO PHYSICS GRID
+# ============================================================
+
+def attach_nearest_oxygen(
+    physics_df,
+    oxygen_df,
+):
+
+    """
+    Physics grid:
+    approximately 0.083 degrees.
+
+    Biogeochemistry oxygen grid:
+    0.25 degrees.
+
+    Each physics cell is assigned the
+    nearest oxygen cell from the same day.
+    """
+
+    result = (
+        physics_df.copy()
+    )
+
+    result[
+        "oxygen_mmol_m3"
+    ] = np.nan
+
+    result[
+        "oxygen_ml_l"
+    ] = np.nan
+
+    result[
+        "oxygen_source_distance_km"
+    ] = np.nan
+
+
+    for target_date in sorted(
+        result[
+            "date"
+        ]
+        .unique()
+    ):
+
+        target_mask = (
+
+            result[
+                "date"
+            ]
+
+            ==
+            target_date
+        )
+
+        target_rows = (
+            result.loc[
+                target_mask
+            ]
+        )
+
+        source_rows = oxygen_df[
+
+            oxygen_df[
+                "date"
+            ]
+
+            ==
+            target_date
+
+        ]
+
+
+        if source_rows.empty:
+
+            continue
+
+
+        target_lat = (
+
+            target_rows[
+                "lat"
+            ]
+
+            .to_numpy(
+                dtype=float
+            )
+        )
+
+
+        target_lon = (
+
+            target_rows[
+                "lon"
+            ]
+
+            .to_numpy(
+                dtype=float
+            )
+        )
+
+
+        source_lat = (
+
+            source_rows[
+                "lat"
+            ]
+
+            .to_numpy(
+                dtype=float
+            )
+        )
+
+
+        source_lon = (
+
+            source_rows[
+                "lon"
+            ]
+
+            .to_numpy(
+                dtype=float
+            )
+        )
+
+
+        # Latitude distance
+
+        dlat_km = (
+
+            target_lat[
+                :,
+                None
+            ]
+
+            -
+
+            source_lat[
+                None,
+                :
+            ]
+
+        ) * 111.32
+
+
+        # Mean latitude for longitude
+        # distance conversion
+
+        mean_lat = np.radians(
+
+            (
+
+                target_lat[
+                    :,
+                    None
+                ]
+
+                +
+
+                source_lat[
+                    None,
+                    :
+                ]
+
+            )
+
+            /
+            2.0
+        )
+
+
+        dlon_km = (
+
+            target_lon[
+                :,
+                None
+            ]
+
+            -
+
+            source_lon[
+                None,
+                :
+            ]
+
+        ) * (
+
+            111.32
+
+            *
+
+            np.cos(
+                mean_lat
+            )
+        )
+
+
+        distance_km = np.sqrt(
+
+            dlat_km
+            ** 2
+
+            +
+
+            dlon_km
+            ** 2
+        )
+
+
+        nearest_idx = np.argmin(
+
+            distance_km,
+
+            axis=1,
+        )
+
+
+        mapped_mmol = (
+
+            source_rows
+            .iloc[
+                nearest_idx
+            ][
+                "oxygen_mmol_m3"
+            ]
+
+            .to_numpy(
+                dtype=float
+            )
+        )
+
+
+        mapped_ml_l = (
+
+            source_rows
+            .iloc[
+                nearest_idx
+            ][
+                "oxygen_ml_l"
+            ]
+
+            .to_numpy(
+                dtype=float
+            )
+        )
+
+
+        mapped_distance = distance_km[
+
+            np.arange(
+                len(
+                    target_rows
+                )
+            ),
+
+            nearest_idx,
+        ]
+
+
+        result.loc[
+            target_mask,
+            "oxygen_mmol_m3"
+        ] = mapped_mmol
+
+
+        result.loc[
+            target_mask,
+            "oxygen_ml_l"
+        ] = mapped_ml_l
+
+
+        result.loc[
+            target_mask,
+            "oxygen_source_distance_km"
+        ] = mapped_distance
+
+
+    if result[
+        "oxygen_ml_l"
+    ].isna().all():
+
+        raise RuntimeError(
+            "Oxygen data downloaded, "
+            "but it could not be matched "
+            "to the physics grid."
+        )
+
+
+    return result
 
 
 # ============================================================
@@ -594,7 +926,10 @@ def habitat_reference(
     month,
 ):
 
-    # Southern Hemisphere Summer
+    # ========================================================
+    # SOUTHERN HEMISPHERE SUMMER
+    # ========================================================
+
     if month in [
         12,
         1,
@@ -617,9 +952,19 @@ def habitat_reference(
 
             "sal_max":
                 35.14,
+
+            "oxygen_min":
+                5.9,
+
+            "oxygen_max":
+                8.7,
         }
 
-    # Southern Hemisphere Winter
+
+    # ========================================================
+    # SOUTHERN HEMISPHERE WINTER
+    # ========================================================
+
     if month in [
         6,
         7,
@@ -642,10 +987,21 @@ def habitat_reference(
 
             "sal_max":
                 35.12,
+
+            "oxygen_min":
+                5.2,
+
+            "oxygen_max":
+                6.3,
         }
 
-    # Transitional months
-    # MVP approximation only
+
+    # ========================================================
+    # TRANSITION MONTHS
+    #
+    # Temporary V1.1 approximation
+    # ========================================================
+
     return {
 
         "season":
@@ -662,6 +1018,12 @@ def habitat_reference(
 
         "sal_max":
             35.14,
+
+        "oxygen_min":
+            5.2,
+
+        "oxygen_max":
+            8.7,
     }
 
 
@@ -686,17 +1048,20 @@ def range_score(
         dtype=float,
     )
 
+
     below = (
         values
         <
         minimum
     )
 
+
     above = (
         values
         >
         maximum
     )
+
 
     score[
         below
@@ -718,6 +1083,7 @@ def range_score(
         shoulder
     )
 
+
     score[
         above
     ] = (
@@ -738,6 +1104,7 @@ def range_score(
         shoulder
     )
 
+
     return np.clip(
         score,
         0,
@@ -746,7 +1113,7 @@ def range_score(
 
 
 # ============================================================
-# HABITAT SUITABILITY INDEX
+# HABITAT SUITABILITY INDEX — V1.1
 # ============================================================
 
 def calculate_hsi(
@@ -763,6 +1130,11 @@ def calculate_hsi(
             month
         )
     )
+
+
+    # ========================================================
+    # TEMPERATURE SCORE
+    # ========================================================
 
     df[
         "temperature_score"
@@ -783,6 +1155,11 @@ def calculate_hsi(
         shoulder=2.0,
     )
 
+
+    # ========================================================
+    # SALINITY SCORE
+    # ========================================================
+
     df[
         "salinity_score"
     ] = range_score(
@@ -802,37 +1179,73 @@ def calculate_hsi(
         shoulder=0.5,
     )
 
+
     # ========================================================
-    # MVP V1
+    # OXYGEN SCORE
+    # ========================================================
+
+    df[
+        "oxygen_score"
+    ] = range_score(
+
+        df[
+            "oxygen_ml_l"
+        ],
+
+        reference[
+            "oxygen_min"
+        ],
+
+        reference[
+            "oxygen_max"
+        ],
+
+        shoulder=1.0,
+    )
+
+
+    # ========================================================
+    # V1.1 TEMPORARY HSI
     #
-    # 50% Temperature
-    # 50% Salinity
+    # Temperature = 1/3
+    # Salinity    = 1/3
+    # Oxygen      = 1/3
     #
-    # Temporary engineering weights
+    # These are NOT trained weights.
     # ========================================================
 
     df[
         "hsi"
     ] = (
 
-        0.50
-        *
-        df[
-            "temperature_score"
-        ]
+        (
 
-        +
+            df[
+                "temperature_score"
+            ]
 
-        0.50
-        *
-        df[
-            "salinity_score"
-        ]
+            +
+
+            df[
+                "salinity_score"
+            ]
+
+            +
+
+            df[
+                "oxygen_score"
+            ]
+
+        )
+
+        /
+        3.0
 
     ).clip(
         0,
         1,
     )
+
 
     return df
 
@@ -851,17 +1264,20 @@ def hsi_class(
             "Very High"
         )
 
+
     if value >= 0.60:
 
         return (
             "High"
         )
 
-    if value >= 0.35:
+
+    if value >= 0.30:
 
         return (
             "Moderate"
         )
+
 
     return (
         "Low"
@@ -880,17 +1296,18 @@ def habitat_centroid(
 
         return None
 
-    # Use best 25% of cells every day.
-    # No minimum HSI threshold.
 
     threshold = float(
+
         dataframe[
             "hsi"
         ]
+
         .quantile(
             0.75
         )
     )
+
 
     best_area = dataframe[
 
@@ -903,28 +1320,34 @@ def habitat_centroid(
 
     ].copy()
 
+
     if best_area.empty:
 
         best_area = (
+
             dataframe
             .nlargest(
                 1,
                 "hsi",
             )
+
             .copy()
         )
+
 
     weights = np.clip(
 
         best_area[
             "hsi"
         ]
+
         .to_numpy(),
 
         0.01,
 
         None,
     )
+
 
     latitude = np.average(
 
@@ -935,6 +1358,7 @@ def habitat_centroid(
         weights=weights,
     )
 
+
     longitude = np.average(
 
         best_area[
@@ -943,6 +1367,7 @@ def habitat_centroid(
 
         weights=weights,
     )
+
 
     return (
         float(
@@ -969,13 +1394,16 @@ def haversine(
         6371.0
     )
 
+
     phi1 = math.radians(
         lat1
     )
 
+
     phi2 = math.radians(
         lat2
     )
+
 
     delta_phi = math.radians(
         lat2
@@ -983,11 +1411,13 @@ def haversine(
         lat1
     )
 
+
     delta_lambda = math.radians(
         lon2
         -
         lon1
     )
+
 
     a = (
 
@@ -1019,6 +1449,7 @@ def haversine(
         )
         ** 2
     )
+
 
     return (
 
@@ -1055,11 +1486,13 @@ def calculate_bearing(
         lat2
     )
 
+
     delta_lambda = math.radians(
         lon2
         -
         lon1
     )
+
 
     x = (
 
@@ -1073,6 +1506,7 @@ def calculate_bearing(
             phi2
         )
     )
+
 
     y = (
 
@@ -1105,6 +1539,7 @@ def calculate_bearing(
         )
     )
 
+
     bearing = math.degrees(
 
         math.atan2(
@@ -1112,6 +1547,7 @@ def calculate_bearing(
             y,
         )
     )
+
 
     return (
 
@@ -1149,6 +1585,7 @@ def direction_name(
         "North-West ↖",
     ]
 
+
     index = int(
 
         (
@@ -1161,6 +1598,7 @@ def direction_name(
         45
 
     ) % 8
+
 
     return directions[
         index
@@ -1186,6 +1624,7 @@ def movement_components(
 
     ) * 111.32
 
+
     mean_latitude = math.radians(
 
         (
@@ -1197,6 +1636,7 @@ def movement_components(
         /
         2
     )
+
 
     east_km = (
 
@@ -1215,6 +1655,7 @@ def movement_components(
         )
     )
 
+
     return (
         north_km,
         east_km,
@@ -1231,27 +1672,34 @@ with st.sidebar:
         "E-AWARE Controls"
     )
 
+
     st.markdown(
         "### Study Area"
     )
+
 
     st.write(
         "Costanera Corridor"
     )
 
+
     st.write(
         "• Lobitos"
     )
+
 
     st.write(
         "• Siches"
     )
 
+
     st.write(
         "• Piedritas"
     )
 
+
     st.divider()
+
 
     selected_date = st.date_input(
 
@@ -1260,10 +1708,12 @@ with st.sidebar:
         value=date.today(),
     )
 
+
     st.caption(
         "E-AWARE requests the selected "
         "day plus the following 72 hours."
     )
+
 
     if st.button(
         "🔄 Refresh Data",
@@ -1296,19 +1746,26 @@ end_date = (
 try:
 
     with st.status(
+
         "Connecting to Copernicus Marine...",
+
         expanded=True,
+
     ) as status:
+
 
         status.write(
             "🔐 Checking Copernicus credentials..."
         )
 
+
         username, password = (
             get_credentials()
         )
 
+
         credential_check = (
+
             copernicusmarine.login(
 
                 username=username,
@@ -1319,6 +1776,7 @@ try:
             )
         )
 
+
         if not credential_check:
 
             raise RuntimeError(
@@ -1326,13 +1784,20 @@ try:
                 "supplied credentials."
             )
 
+
         status.write(
             "✅ Credentials valid"
         )
 
+
+        # ----------------------------------------------------
+        # TEMPERATURE
+        # ----------------------------------------------------
+
         status.write(
-            "🌡️ 1/3 Downloading temperature..."
+            "🌡️ 1/4 Downloading temperature..."
         )
+
 
         temperature_data = (
             load_temperature(
@@ -1343,14 +1808,22 @@ try:
             )
         )
 
+
         status.write(
+
             f"✅ Temperature loaded "
             f"({len(temperature_data)} records)"
         )
 
+
+        # ----------------------------------------------------
+        # SALINITY
+        # ----------------------------------------------------
+
         status.write(
-            "🧂 2/3 Downloading salinity..."
+            "🧂 2/4 Downloading salinity..."
         )
+
 
         salinity_data = (
             load_salinity(
@@ -1361,14 +1834,22 @@ try:
             )
         )
 
+
         status.write(
+
             f"✅ Salinity loaded "
             f"({len(salinity_data)} records)"
         )
 
+
+        # ----------------------------------------------------
+        # SST ANOMALY
+        # ----------------------------------------------------
+
         status.write(
-            "🌊 3/3 Downloading SST anomaly..."
+            "🌊 3/4 Downloading SST anomaly..."
         )
+
 
         anomaly_data = (
             load_sst_anomaly(
@@ -1379,23 +1860,75 @@ try:
             )
         )
 
+
         status.write(
+
             f"✅ SST anomaly loaded "
             f"({len(anomaly_data)} records)"
         )
 
+
+        # ----------------------------------------------------
+        # OXYGEN
+        # ----------------------------------------------------
+
         status.write(
-            "🔗 Combining ocean datasets..."
+            "🫧 4/4 Downloading dissolved oxygen..."
         )
 
-        ocean = merge_ocean_data(
 
-            temperature_data,
+        oxygen_data = (
+            load_oxygen(
 
-            salinity_data,
+                selected_date,
 
-            anomaly_data,
+                end_date,
+            )
         )
+
+
+        status.write(
+
+            f"✅ Oxygen loaded "
+            f"({len(oxygen_data)} records)"
+        )
+
+
+        # ----------------------------------------------------
+        # MERGE
+        # ----------------------------------------------------
+
+        status.write(
+            "🔗 Combining physics datasets..."
+        )
+
+
+        ocean = (
+            merge_physics_data(
+
+                temperature_data,
+
+                salinity_data,
+
+                anomaly_data,
+            )
+        )
+
+
+        status.write(
+            "🫧 Mapping oxygen onto the physics grid..."
+        )
+
+
+        ocean = (
+            attach_nearest_oxygen(
+
+                ocean,
+
+                oxygen_data,
+            )
+        )
+
 
         status.update(
 
@@ -1417,15 +1950,18 @@ except Exception as error:
         "Copernicus data."
     )
 
+
     st.write(
         "Technical error:"
     )
+
 
     st.code(
         str(
             error
         )
     )
+
 
     st.stop()
 
@@ -1489,11 +2025,38 @@ current_data = ocean[
 ].copy()
 
 
-current_data = calculate_hsi(
+current_data = (
+    current_data
+    .dropna(
+        subset=[
+            "oxygen_ml_l"
+        ]
+    )
+    .copy()
+)
 
-    current_data,
 
-    current_date.month,
+if current_data.empty:
+
+    st.error(
+        "No oxygen-matched ocean cells "
+        "are available for the selected date."
+    )
+
+    st.stop()
+
+
+# ============================================================
+# CURRENT HSI
+# ============================================================
+
+current_data = (
+    calculate_hsi(
+
+        current_data,
+
+        current_date.month,
+    )
 )
 
 
@@ -1521,9 +2084,11 @@ best = current_data.loc[
 ]
 
 
-reference = habitat_reference(
+reference = (
+    habitat_reference(
 
-    current_date.month
+        current_date.month
+    )
 )
 
 
@@ -1571,9 +2136,33 @@ metric3.metric(
 
 metric4.metric(
 
+    "Dissolved Oxygen",
+
+    f"{best['oxygen_ml_l']:.2f} mL/L"
+)
+
+
+context1, context2 = (
+    st.columns(
+        2
+    )
+)
+
+
+context1.metric(
+
+    "Salinity",
+
+    f"{best['salinity']:.2f} PSU"
+)
+
+
+context2.metric(
+
     "SST Anomaly",
 
     (
+
         f"{best['sst_anomaly']:+.2f} °C"
 
         if pd.notna(
@@ -1589,14 +2178,15 @@ metric4.metric(
 
 
 st.caption(
-    "Copernicus provides the environmental "
-    "inputs. E-AWARE calculates the "
-    "Habitat Suitability Index."
+    "Copernicus provides the environmental inputs. "
+    "E-AWARE calculates the HSI. "
+    "V1.1 adds surface dissolved oxygen "
+    "to the suitability calculation."
 )
 
 
 # ============================================================
-# CURRENT HABITAT MAP
+# HABITAT MAP
 # ============================================================
 
 st.subheader(
@@ -1611,8 +2201,9 @@ map_mode = st.radio(
     [
         "Habitat Suitability",
         "Temperature",
-        "SST Anomaly",
         "Salinity",
+        "Dissolved Oxygen",
+        "SST Anomaly",
     ],
 
     horizontal=True,
@@ -1625,7 +2216,7 @@ map_data = (
 
 
 # ============================================================
-# MAP COLOURS
+# HABITAT SUITABILITY COLOUR
 # ============================================================
 
 if map_mode == (
@@ -1648,6 +2239,7 @@ if map_mode == (
         220
     )
 
+
     map_data[
         "g"
     ] = (
@@ -1660,10 +2252,15 @@ if map_mode == (
         210
     )
 
+
     map_data[
         "b"
     ] = 70
 
+
+# ============================================================
+# TEMPERATURE COLOUR
+# ============================================================
 
 elif map_mode == (
     "Temperature"
@@ -1674,6 +2271,7 @@ elif map_mode == (
             "temperature"
         ]
     )
+
 
     spread = max(
 
@@ -1686,6 +2284,7 @@ elif map_mode == (
         0.01,
     )
 
+
     normalised = (
 
         values
@@ -1693,6 +2292,7 @@ elif map_mode == (
         values.min()
 
     ) / spread
+
 
     map_data[
         "r"
@@ -1706,9 +2306,11 @@ elif map_mode == (
         normalised
     )
 
+
     map_data[
         "g"
     ] = 80
+
 
     map_data[
         "b"
@@ -1723,9 +2325,137 @@ elif map_mode == (
     )
 
 
+# ============================================================
+# SALINITY COLOUR
+# ============================================================
+
 elif map_mode == (
-    "SST Anomaly"
+    "Salinity"
 ):
+
+    values = (
+        map_data[
+            "salinity"
+        ]
+    )
+
+
+    spread = max(
+
+        float(
+            values.max()
+            -
+            values.min()
+        ),
+
+        0.001,
+    )
+
+
+    normalised = (
+
+        values
+        -
+        values.min()
+
+    ) / spread
+
+
+    map_data[
+        "r"
+    ] = 50
+
+
+    map_data[
+        "g"
+    ] = (
+
+        100
+
+        +
+        120
+        *
+        normalised
+    )
+
+
+    map_data[
+        "b"
+    ] = 220
+
+
+# ============================================================
+# OXYGEN COLOUR
+# ============================================================
+
+elif map_mode == (
+    "Dissolved Oxygen"
+):
+
+    values = (
+        map_data[
+            "oxygen_ml_l"
+        ]
+    )
+
+
+    spread = max(
+
+        float(
+            values.max()
+            -
+            values.min()
+        ),
+
+        0.001,
+    )
+
+
+    normalised = (
+
+        values
+        -
+        values.min()
+
+    ) / spread
+
+
+    map_data[
+        "r"
+    ] = 80
+
+
+    map_data[
+        "g"
+    ] = (
+
+        130
+
+        +
+        100
+        *
+        normalised
+    )
+
+
+    map_data[
+        "b"
+    ] = (
+
+        230
+
+        -
+        80
+        *
+        normalised
+    )
+
+
+# ============================================================
+# SST ANOMALY COLOUR
+# ============================================================
+
+else:
 
     values = (
 
@@ -1737,6 +2467,7 @@ elif map_mode == (
             0
         )
     )
+
 
     spread = max(
 
@@ -1755,6 +2486,7 @@ elif map_mode == (
         0.1,
     )
 
+
     normalised = (
 
         (
@@ -1768,6 +2500,7 @@ elif map_mode == (
 
     ) / 2
 
+
     map_data[
         "r"
     ] = (
@@ -1780,9 +2513,11 @@ elif map_mode == (
         normalised
     )
 
+
     map_data[
         "g"
     ] = 100
+
 
     map_data[
         "b"
@@ -1797,56 +2532,8 @@ elif map_mode == (
     )
 
 
-else:
-
-    values = (
-        map_data[
-            "salinity"
-        ]
-    )
-
-    spread = max(
-
-        float(
-            values.max()
-            -
-            values.min()
-        ),
-
-        0.001,
-    )
-
-    normalised = (
-
-        values
-        -
-        values.min()
-
-    ) / spread
-
-    map_data[
-        "r"
-    ] = 50
-
-    map_data[
-        "g"
-    ] = (
-
-        100
-
-        +
-        120
-        *
-        normalised
-    )
-
-    map_data[
-        "b"
-    ] = 220
-
-
 # ============================================================
-# CURRENT MAP LAYERS
+# OCEAN MAP LAYER
 # ============================================================
 
 ocean_layer = pdk.Layer(
@@ -1876,6 +2563,10 @@ ocean_layer = pdk.Layer(
     pickable=True,
 )
 
+
+# ============================================================
+# COMMUNITY MAP LAYER
+# ============================================================
 
 community_layer = pdk.Layer(
 
@@ -1912,6 +2603,10 @@ community_layer = pdk.Layer(
 )
 
 
+# ============================================================
+# DISPLAY MAP
+# ============================================================
+
 st.pydeck_chart(
 
     pdk.Deck(
@@ -1947,8 +2642,9 @@ st.pydeck_chart(
                 "<b>{class} Habitat</b><br/>"
                 "HSI: {hsi}<br/>"
                 "SST: {temperature} °C<br/>"
-                "SST anomaly: {sst_anomaly} °C<br/>"
-                "Salinity: {salinity} PSU"
+                "Salinity: {salinity} PSU<br/>"
+                "Oxygen: {oxygen_ml_l} mL/L<br/>"
+                "SST anomaly: {sst_anomaly} °C"
         },
     ),
 
@@ -1957,8 +2653,9 @@ st.pydeck_chart(
 
 
 st.caption(
-    "Only valid Copernicus ocean cells "
-    "are included."
+    "Oxygen comes from the 0.25° Copernicus "
+    "biogeochemistry grid and is mapped to the "
+    "nearest 0.083° physics grid cell for this MVP."
 )
 
 
@@ -2023,9 +2720,9 @@ st.subheader(
 )
 
 
-reference1, reference2, reference3 = (
+reference1, reference2, reference3, reference4 = (
     st.columns(
-        3
+        4
     )
 )
 
@@ -2054,6 +2751,17 @@ reference2.metric(
 
 reference3.metric(
 
+    "Reference Oxygen",
+
+    (
+        f"{reference['oxygen_min']} – "
+        f"{reference['oxygen_max']} mL/L"
+    )
+)
+
+
+reference4.metric(
+
     "Season",
 
     reference[
@@ -2063,10 +2771,10 @@ reference3.metric(
 
 
 st.warning(
-    "MVP V1 currently uses temperature "
-    "and salinity with equal weighting. "
-    "The final model will later be trained "
-    "and validated using anchoveta observations."
+    "V1.1 uses temperature, salinity and "
+    "surface dissolved oxygen with equal weighting. "
+    "These weights are temporary and will later be "
+    "trained and validated using anchoveta observations."
 )
 
 
@@ -2081,6 +2789,7 @@ forecast_results = []
 
 for forecast_date in available_dates:
 
+
     forecast_frame = ocean[
 
         ocean[
@@ -2094,6 +2803,24 @@ for forecast_date in available_dates:
 
 
     forecast_frame = (
+
+        forecast_frame
+        .dropna(
+            subset=[
+                "oxygen_ml_l"
+            ]
+        )
+        .copy()
+    )
+
+
+    if forecast_frame.empty:
+
+        continue
+
+
+    forecast_frame = (
+
         calculate_hsi(
 
             forecast_frame,
@@ -2104,6 +2831,7 @@ for forecast_date in available_dates:
 
 
     centre = (
+
         habitat_centroid(
             forecast_frame
         )
@@ -2183,6 +2911,18 @@ for forecast_date in available_dates:
                     2,
                 ),
 
+            "Oxygen mL/L":
+                round(
+
+                    float(
+                        best_forecast[
+                            "oxygen_ml_l"
+                        ]
+                    ),
+
+                    2,
+                ),
+
             "SST Anomaly °C":
                 (
 
@@ -2252,29 +2992,36 @@ direction_text = (
     "Unavailable"
 )
 
+
 distance_text = (
     "—"
 )
+
 
 bearing_text = (
     "—"
 )
 
+
 period_text = (
     "Insufficient forecast data"
 )
+
 
 start_point_text = (
     "—"
 )
 
+
 end_point_text = (
     "—"
 )
 
+
 north_south_text = (
     "—"
 )
+
 
 east_west_text = (
     "—"
@@ -2282,9 +3029,11 @@ east_west_text = (
 
 
 start = None
+
 end = None
 
 distance = None
+
 bearing = None
 
 
@@ -2292,11 +3041,13 @@ if len(
     forecast_centres
 ) >= 2:
 
+
     start = (
         forecast_centres[
             0
         ]
     )
+
 
     end = (
         forecast_centres[
@@ -2358,6 +3109,7 @@ if len(
     # ========================================================
 
     north_km, east_km = (
+
         movement_components(
 
             start[
@@ -2383,9 +3135,11 @@ if len(
         f"{distance:.2f} km"
     )
 
+
     bearing_text = (
         f"{bearing:.1f}°"
     )
+
 
     period_text = (
 
@@ -2394,11 +3148,13 @@ if len(
         f"{end['date'].strftime('%d %b %Y')}"
     )
 
+
     start_point_text = (
 
         f"{start['lat']:.4f}, "
         f"{start['lon']:.4f}"
     )
+
 
     end_point_text = (
 
@@ -2464,6 +3220,7 @@ if len(
     if distance >= 2.0:
 
         direction_text = (
+
             direction_name(
                 bearing
             )
@@ -2511,7 +3268,6 @@ shift3.metric(
 )
 
 
-# Full width so it does not get cut off
 st.markdown(
 
     f"**Forecast Period:** "
@@ -2607,6 +3363,7 @@ if (
     end is not None
 ):
 
+
     shift_path_data = [
 
         {
@@ -2640,6 +3397,10 @@ if (
     ]
 
 
+    # ========================================================
+    # START MARKER
+    # ========================================================
+
     start_marker = pd.DataFrame(
 
         [
@@ -2661,6 +3422,10 @@ if (
     )
 
 
+    # ========================================================
+    # END MARKER
+    # ========================================================
+
     end_marker = pd.DataFrame(
 
         [
@@ -2681,6 +3446,10 @@ if (
         ]
     )
 
+
+    # ========================================================
+    # LABELS
+    # ========================================================
 
     label_points = pd.DataFrame(
 
@@ -2719,7 +3488,7 @@ if (
 
 
     # ========================================================
-    # SHIFT LINE
+    # PATH
     # ========================================================
 
     path_layer = pdk.Layer(
@@ -2752,7 +3521,7 @@ if (
 
 
     # ========================================================
-    # CURRENT POINT
+    # START
     # ========================================================
 
     start_layer = pdk.Layer(
@@ -2802,7 +3571,7 @@ if (
 
 
     # ========================================================
-    # FORECAST POINT
+    # END
     # ========================================================
 
     end_layer = pdk.Layer(
@@ -2852,7 +3621,7 @@ if (
 
 
     # ========================================================
-    # MAP LABELS
+    # LABEL LAYER
     # ========================================================
 
     label_layer = pdk.Layer(
@@ -2893,6 +3662,10 @@ if (
     )
 
 
+    # ========================================================
+    # MAP CENTRE
+    # ========================================================
+
     shift_mid_lat = (
 
         start[
@@ -2922,6 +3695,10 @@ if (
 
     ) / 2
 
+
+    # ========================================================
+    # DISPLAY SHIFT MAP
+    # ========================================================
 
     st.pydeck_chart(
 
@@ -2997,7 +3774,7 @@ else:
 
 
 # ============================================================
-# 72-HOUR FORECAST TABLE
+# 72-HOUR FORECAST
 # ============================================================
 
 st.subheader(
@@ -3060,17 +3837,14 @@ Estimated habitat shift:
 Bearing:
 {bearing_text}
 
-North / South movement:
-{north_south_text}
-
-East / West movement:
-{east_west_text}
-
 Sea temperature:
 {best['temperature']:.1f} °C
 
 Salinity:
 {best['salinity']:.2f} PSU
+
+Dissolved oxygen:
+{best['oxygen_ml_l']:.2f} mL/L
 
 Check official fishing restrictions before departure.
 
@@ -3084,12 +3858,12 @@ st.text_area(
 
     sms_message,
 
-    height=360,
+    height=390,
 )
 
 
 st.caption(
-    "MVP V1 only previews the SMS. "
+    "MVP V1.1 only previews the SMS. "
     "Real SMS delivery will be added later."
 )
 
@@ -3108,29 +3882,18 @@ source_table = pd.DataFrame(
     [
         {
             "Source":
-                "Copernicus Marine",
+                "Copernicus Marine Physics",
 
             "Status":
                 "Analysis / forecast",
 
             "Use":
-                "Sea temperature",
+                "Sea temperature and salinity",
         },
 
         {
             "Source":
-                "Copernicus Marine",
-
-            "Status":
-                "Analysis / forecast",
-
-            "Use":
-                "Salinity",
-        },
-
-        {
-            "Source":
-                "Copernicus Marine",
+                "Copernicus Marine Physics",
 
             "Status":
                 "Analysis / forecast",
@@ -3141,13 +3904,27 @@ source_table = pd.DataFrame(
 
         {
             "Source":
-                "Anchoveta habitat study",
+                "Copernicus Marine Biogeochemistry",
+
+            "Status":
+                "Analysis / forecast",
+
+            "Use":
+                "Surface dissolved oxygen",
+        },
+
+        {
+            "Source":
+                "Castillo et al. (2019)",
 
             "Status":
                 "Scientific reference",
 
             "Use":
-                "Habitat environmental ranges",
+                (
+                    "Anchoveta temperature, "
+                    "salinity and oxygen ranges"
+                ),
         },
 
         {
@@ -3190,19 +3967,33 @@ st.dataframe(
 # ============================================================
 
 with st.expander(
-    "⚙️ MVP V1 Limitations"
+    "⚙️ MVP V1.1 Limitations"
 ):
 
     st.markdown(
         """
-### Current model inputs
+### Current HSI inputs
 
 - Sea temperature
 - Salinity
+- Surface dissolved oxygen
 
 ### Environmental context
 
 - SST anomaly
+
+### Important oxygen limitation
+
+The Copernicus biogeochemistry oxygen product has a coarser
+horizontal grid than the physics product.
+
+V1.1 therefore maps each physics grid cell to the nearest
+available oxygen grid cell for the same day.
+
+The oxygen value used here is **surface dissolved oxygen**.
+
+It is not yet an estimate of oxycline depth or the depth of
+the oxygen-minimum zone.
 
 ### Habitat-shift calculation
 
@@ -3210,7 +4001,7 @@ E-AWARE calculates the centre of the top 25% highest-scoring
 habitat cells for each forecast day.
 
 It compares the current habitat centre with the final
-72-hour forecast habitat centre.
+forecast habitat centre.
 
 The output includes:
 
@@ -3223,30 +4014,28 @@ The output includes:
 - Forecast coordinates
 - Visual habitat-shift map
 
-The movement shown is a shift in predicted habitat
-suitability. It is not direct tracking of anchoveta.
+The movement shown is a shift in **predicted habitat
+suitability**, not direct tracking of anchoveta.
 
 ### Not yet integrated
 
-- Dissolved oxygen
 - Oxycline depth
 - Bathymetry
 - Distance from coast
 - Chlorophyll
-- Ocean currents
+- Ocean currents in the HSI
 - Historical IMARPE anchoveta observations
 - Juvenile protection
 - Fishing closures
 
 ### Model status
 
-V1 is a transparent engineering prototype.
+V1.1 is a transparent engineering prototype.
 
-It is not yet a trained anchoveta-distribution model.
+The equal HSI weights are temporary.
 
-The next versions will integrate historical observations,
-train multiple models, and validate predictions against data
-that were not used during training.
+The next stages will add more habitat variables and later
+train and validate the model against anchoveta observations.
         """
     )
 
@@ -3259,7 +4048,7 @@ st.divider()
 
 
 st.caption(
-    "E-AWARE MVP V1 | "
+    "E-AWARE MVP V1.1 | "
     "El Niño Adaptive Fisheries Intelligence | "
     "Decision-support research prototype"
 )
