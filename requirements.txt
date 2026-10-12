@@ -5,3 +5,4 @@ pandas
 pydeck
 xarray
 netCDF4
+requests
