@@ -26,7 +26,7 @@ st.set_page_config(
 st.title("🐟 E-AWARE")
 
 st.caption(
-    "El Niño Adaptive Fisheries Intelligence — MVP V1.3 Step 1"
+    "El Niño Adaptive Fisheries Intelligence — MVP V1.3 Step 2"
 )
 
 st.info(
@@ -104,6 +104,9 @@ BASEMAP_URL = (
     "https://basemaps.cartocdn.com/"
     "gl/positron-gl-style/style.json"
 )
+
+
+KM_PER_NAUTICAL_MILE = 1.852
 
 
 # ============================================================
@@ -412,9 +415,8 @@ def download_subset(
             if not netcdf_files:
 
                 raise RuntimeError(
-                    f"{output_name} download "
-                    "completed but no NetCDF "
-                    "file was found."
+                    f"{output_name} download completed "
+                    "but no NetCDF file was found."
                 )
 
 
@@ -432,9 +434,8 @@ def download_subset(
             if variable not in ds.data_vars:
 
                 raise RuntimeError(
-                    f"Variable '{variable}' "
-                    f"was not found in the "
-                    f"{output_name} file."
+                    f"Variable '{variable}' was not "
+                    f"found in the {output_name} file."
                 )
 
 
@@ -488,11 +489,17 @@ def load_temperature(
 ):
 
     return download_subset(
+
         TEMPERATURE_DATASET,
+
         "thetao",
+
         "temperature",
+
         start_date,
+
         end_date,
+
         True
     )
 
@@ -507,11 +514,17 @@ def load_salinity(
 ):
 
     return download_subset(
+
         SALINITY_DATASET,
+
         "so",
+
         "salinity",
+
         start_date,
+
         end_date,
+
         True
     )
 
@@ -526,11 +539,17 @@ def load_sst_anomaly(
 ):
 
     return download_subset(
+
         SST_ANOMALY_DATASET,
+
         "sea_surface_temperature_anomaly",
+
         "sst_anomaly",
+
         start_date,
+
         end_date,
+
         False
     )
 
@@ -545,11 +564,17 @@ def load_oxygen(
 ):
 
     oxygen = download_subset(
+
         OXYGEN_DATASET,
+
         "o2",
+
         "oxygen_mmol_m3",
+
         start_date,
+
         end_date,
+
         True
     )
 
@@ -1221,42 +1246,24 @@ def get_gebco_elevation(
     }
 
 
-    try:
+    response = requests.get(
 
-        response = requests.get(
+        GEBCO_API_URL,
 
-            GEBCO_API_URL,
+        params=params,
 
-            params=params,
+        headers=headers,
 
-            headers=headers,
-
-            timeout=30
-        )
+        timeout=30
+    )
 
 
-        response.raise_for_status()
+    response.raise_for_status()
 
 
-        payload = (
-            response.json()
-        )
-
-
-    except requests.RequestException as error:
-
-        raise RuntimeError(
-            "GEBCO API request failed at "
-            f"({lat:.4f}, {lon:.4f}): {error}"
-        ) from error
-
-
-    except ValueError as error:
-
-        raise RuntimeError(
-            "GEBCO API did not return valid JSON. "
-            f"Response: {response.text[:200]}"
-        ) from error
+    payload = (
+        response.json()
+    )
 
 
     if (
@@ -1289,7 +1296,7 @@ def get_gebco_elevation(
 
 
 # ============================================================
-# BATCH GEBCO REQUEST
+# BATCH GEBCO
 # ============================================================
 
 @st.cache_data(
@@ -1306,6 +1313,7 @@ def get_gebco_batch(
             float(
                 lat
             ),
+
             float(
                 lon
             )
@@ -1481,6 +1489,7 @@ def attach_gebco_bathymetry(
             float(
                 row.lat
             ),
+
             float(
                 row.lon
             )
@@ -1673,7 +1682,7 @@ def load_noaa_coastline_lines():
 
 
     # --------------------------------------------------------
-    # TRY GEOJSON FIRST
+    # GEOJSON
     # --------------------------------------------------------
 
     try:
@@ -1771,93 +1780,83 @@ def load_noaa_coastline_lines():
 
 
     # --------------------------------------------------------
-    # FALLBACK TO ARCGIS JSON
+    # ARCGIS JSON FALLBACK
     # --------------------------------------------------------
 
-    try:
+    params = dict(
+        common_params
+    )
 
-        params = dict(
-            common_params
-        )
-
-        params[
-            "f"
-        ] = "json"
+    params[
+        "f"
+    ] = "json"
 
 
-        response = requests.get(
+    response = requests.get(
 
-            NOAA_COASTLINE_QUERY_URL,
+        NOAA_COASTLINE_QUERY_URL,
 
-            params=params,
+        params=params,
 
-            headers=headers,
+        headers=headers,
 
-            timeout=45
-        )
-
-
-        response.raise_for_status()
+        timeout=45
+    )
 
 
-        payload = (
-            response.json()
-        )
+    response.raise_for_status()
 
 
-        if "error" in payload:
-
-            raise RuntimeError(
-                "NOAA coastline service error: "
-                f"{payload['error']}"
-            )
+    payload = (
+        response.json()
+    )
 
 
-        line_strings = []
-
-
-        for feature in payload.get(
-            "features",
-            []
-        ):
-
-            geometry = feature.get(
-                "geometry"
-            ) or {}
-
-
-            paths = geometry.get(
-                "paths",
-                []
-            )
-
-
-            line_strings.extend(
-                paths
-            )
-
-
-        if not line_strings:
-
-            raise RuntimeError(
-                "NOAA coastline query "
-                "returned no coastline geometry."
-            )
-
-
-        return line_strings
-
-
-    except requests.RequestException as error:
+    if "error" in payload:
 
         raise RuntimeError(
-            "NOAA coastline request failed: "
-            f"{error}"
-        ) from error
+            "NOAA coastline service error: "
+            f"{payload['error']}"
+        )
+
+
+    line_strings = []
+
+
+    for feature in payload.get(
+        "features",
+        []
+    ):
+
+        geometry = feature.get(
+            "geometry"
+        ) or {}
+
+
+        paths = geometry.get(
+            "paths",
+            []
+        )
+
+
+        line_strings.extend(
+            paths
+        )
+
+
+    if not line_strings:
+
+        raise RuntimeError(
+            "NOAA coastline query "
+            "returned no coastline geometry."
+        )
+
+
+    return line_strings
 
 
 # ============================================================
-# POINT TO COASTLINE SEGMENT DISTANCE
+# POINT-TO-SEGMENT DISTANCE
 # ============================================================
 
 def point_to_segment_distance_km(
@@ -1941,6 +1940,7 @@ def point_to_segment_distance_km(
         -
         x1
     )
+
 
     dy = (
         y2
@@ -2194,7 +2194,7 @@ def attach_distance_to_coast(
     )
 
 
-    distances = []
+    distances_km = []
 
 
     for row in unique_grid.itertuples(
@@ -2217,7 +2217,7 @@ def attach_distance_to_coast(
         )
 
 
-        distances.append(
+        distances_km.append(
             distance_km
         )
 
@@ -2238,8 +2238,21 @@ def attach_distance_to_coast(
     coast_grid[
         "distance_coast_km"
     ] = np.asarray(
-        distances,
+        distances_km,
         dtype=float
+    )
+
+
+    coast_grid[
+        "distance_coast_nm"
+    ] = (
+
+        coast_grid[
+            "distance_coast_km"
+        ]
+
+        /
+        KM_PER_NAUTICAL_MILE
     )
 
 
@@ -2451,7 +2464,7 @@ def range_score(
 
 
 # ============================================================
-# HSI V1.3 STEP 1
+# HSI V1.3 STEP 2
 # ============================================================
 
 def calculate_hsi(
@@ -2533,8 +2546,8 @@ def calculate_hsi(
 
     # IMPORTANT:
     #
-    # Bathymetry and distance from coast are NOT
-    # included in the HSI weighting yet.
+    # Bathymetry and distance from coast
+    # remain OUTSIDE the HSI.
     #
     # Current HSI:
     #
@@ -2694,11 +2707,9 @@ def habitat_centroid(
 
 
     return (
-
         float(
             latitude
         ),
-
         float(
             longitude
         )
@@ -3054,7 +3065,7 @@ try:
 
     with st.status(
 
-        "Loading E-AWARE V1.3 Step 1 environmental data...",
+        "Loading E-AWARE V1.3 Step 2 environmental data...",
 
         expanded=True
 
@@ -3239,15 +3250,15 @@ try:
 
 
         status.write(
-            "✅ Distance from coast calculated "
-            "for each retained ocean grid cell"
+            "✅ Coast distance stored in "
+            "kilometres and nautical miles"
         )
 
 
         status.update(
 
             label=
-                "✅ E-AWARE V1.3 Step 1 "
+                "✅ E-AWARE V1.3 Step 2 "
                 "environmental data loaded",
 
             state=
@@ -3261,7 +3272,7 @@ try:
 except Exception as error:
 
     st.error(
-        "❌ E-AWARE V1.3 Step 1 could not "
+        "❌ E-AWARE V1.3 Step 2 could not "
         "load all environmental data."
     )
 
@@ -3339,7 +3350,8 @@ current_data = (
         subset=[
             "oxygen_ml_l",
             "water_depth_m",
-            "distance_coast_km"
+            "distance_coast_km",
+            "distance_coast_nm"
         ]
     )
 
@@ -3398,6 +3410,11 @@ reference = (
 )
 
 
+coastline_lines = (
+    load_noaa_coastline_lines()
+)
+
+
 # ============================================================
 # CURRENT CONDITIONS
 # ============================================================
@@ -3440,9 +3457,9 @@ metric4.metric(
 )
 
 
-context1, context2, context3 = (
+context1, context2, context3, context4 = (
     st.columns(
-        3
+        4
     )
 )
 
@@ -3479,11 +3496,21 @@ context3.metric(
 )
 
 
+context4.metric(
+
+    "Distance from Coast",
+
+    (
+        f"{best['distance_coast_km']:.2f} km / "
+        f"{best['distance_coast_nm']:.2f} nm"
+    )
+)
+
+
 st.caption(
-    "V1.3 Step 1 retains the V1.2 HSI. "
-    "Distance from coast is now calculated "
-    "for every ocean grid cell for validation, "
-    "but is not yet used as an HSI input."
+    "V1.3 Step 2 stores distance from the nearest "
+    "coastline in both kilometres and nautical miles. "
+    "Distance from coast is still not included in the HSI."
 )
 
 
@@ -3506,6 +3533,7 @@ map_mode = st.radio(
         "Salinity",
         "Dissolved Oxygen",
         "Bathymetry",
+        "Distance from Coast",
         "SST Anomaly"
     ],
 
@@ -3516,6 +3544,36 @@ map_mode = st.radio(
 map_data = (
     current_data.copy()
 )
+
+
+def scaled(
+    values
+):
+
+    values = values.astype(
+        float
+    )
+
+
+    spread = max(
+
+        float(
+            values.max()
+            -
+            values.min()
+        ),
+
+        0.000000001
+    )
+
+
+    return (
+
+        values
+        -
+        values.min()
+
+    ) / spread
 
 
 if map_mode == (
@@ -3561,32 +3619,11 @@ elif map_mode == (
     "Temperature"
 ):
 
-    values = (
+    normalised = scaled(
         map_data[
             "temperature"
         ]
     )
-
-
-    spread = max(
-
-        float(
-            values.max()
-            -
-            values.min()
-        ),
-
-        0.01
-    )
-
-
-    normalised = (
-
-        values
-        -
-        values.min()
-
-    ) / spread
 
 
     map_data[
@@ -3624,32 +3661,11 @@ elif map_mode == (
     "Salinity"
 ):
 
-    values = (
+    normalised = scaled(
         map_data[
             "salinity"
         ]
     )
-
-
-    spread = max(
-
-        float(
-            values.max()
-            -
-            values.min()
-        ),
-
-        0.001
-    )
-
-
-    normalised = (
-
-        values
-        -
-        values.min()
-
-    ) / spread
 
 
     map_data[
@@ -3679,32 +3695,11 @@ elif map_mode == (
     "Dissolved Oxygen"
 ):
 
-    values = (
+    normalised = scaled(
         map_data[
             "oxygen_ml_l"
         ]
     )
-
-
-    spread = max(
-
-        float(
-            values.max()
-            -
-            values.min()
-        ),
-
-        0.001
-    )
-
-
-    normalised = (
-
-        values
-        -
-        values.min()
-
-    ) / spread
 
 
     map_data[
@@ -3742,32 +3737,11 @@ elif map_mode == (
     "Bathymetry"
 ):
 
-    values = (
+    normalised = scaled(
         map_data[
             "water_depth_m"
         ]
     )
-
-
-    spread = max(
-
-        float(
-            values.max()
-            -
-            values.min()
-        ),
-
-        1.0
-    )
-
-
-    normalised = (
-
-        values
-        -
-        values.min()
-
-    ) / spread
 
 
     map_data[
@@ -3804,6 +3778,56 @@ elif map_mode == (
 
         +
         40
+        *
+        normalised
+    )
+
+
+elif map_mode == (
+    "Distance from Coast"
+):
+
+    normalised = scaled(
+        map_data[
+            "distance_coast_km"
+        ]
+    )
+
+
+    map_data[
+        "r"
+    ] = (
+
+        60
+
+        +
+        150
+        *
+        normalised
+    )
+
+
+    map_data[
+        "g"
+    ] = (
+
+        190
+
+        -
+        100
+        *
+        normalised
+    )
+
+
+    map_data[
+        "b"
+    ] = (
+
+        220
+
+        -
+        80
         *
         normalised
     )
@@ -3887,7 +3911,7 @@ else:
 
 
 # ============================================================
-# TOOLTIP VALUES
+# MAP DISPLAY VALUES
 # ============================================================
 
 map_data[
@@ -3951,10 +3975,22 @@ map_data[
 
 
 map_data[
-    "coast_display"
+    "coast_km_display"
 ] = (
     map_data[
         "distance_coast_km"
+    ]
+    .round(
+        2
+    )
+)
+
+
+map_data[
+    "coast_nm_display"
+] = (
+    map_data[
+        "distance_coast_nm"
     ]
     .round(
         2
@@ -4094,7 +4130,9 @@ st.pydeck_chart(
                 "Salinity: {salinity_display} PSU<br/>"
                 "Oxygen: {oxygen_display} mL/L<br/>"
                 "Water depth: {depth_display} m<br/>"
-                "Distance from coast: {coast_display} km<br/>"
+                "Distance from coast: "
+                "{coast_km_display} km / "
+                "{coast_nm_display} nm<br/>"
                 "SST anomaly: {anomaly_display} °C"
         }
     ),
@@ -4104,10 +4142,10 @@ st.pydeck_chart(
 
 
 st.caption(
-    "V1.3 Step 1 calculates the shortest "
-    "local distance from each retained "
-    "E-AWARE ocean grid cell to the "
-    "nearest coastline segment."
+    "The Distance from Coast layer shows the "
+    "shortest calculated distance from each "
+    "E-AWARE ocean grid cell to the nearest "
+    "NOAA coastline segment."
 )
 
 
@@ -4120,9 +4158,9 @@ st.subheader(
 )
 
 
-zone1, zone2, zone3, zone4 = (
+zone1, zone2, zone3, zone4, zone5 = (
     st.columns(
-        4
+        5
     )
 )
 
@@ -4150,62 +4188,70 @@ zone3.metric(
 
 
 zone4.metric(
-    "GEBCO Depth Estimate",
+    "GEBCO Depth",
     f"{best['water_depth_m']:.0f} m"
 )
 
 
+zone5.metric(
+
+    "Coast Distance",
+
+    (
+        f"{best['distance_coast_km']:.2f} km / "
+        f"{best['distance_coast_nm']:.2f} nm"
+    )
+)
+
+
 st.caption(
-    "Distance from coast has been calculated "
-    "in Step 1, but is not yet promoted to the "
-    "final dashboard predictor set and does not "
-    "affect the HSI."
+    "Bathymetry and coast distance are displayed "
+    "as environmental context. Neither currently "
+    "changes the HSI score."
 )
 
 
 # ============================================================
-# V1.3 STEP 1 VALIDATION
+# DISTANCE TO COAST VALIDATION
 # ============================================================
 
 st.subheader(
-    "🔎 V1.3 Step 1 — Distance-to-Coast Validation"
+    "📏 V1.3 Step 2 — Distance-to-Coast"
 )
 
 
-validation1, validation2, validation3 = (
+validation1, validation2, validation3, validation4 = (
     st.columns(
-        3
+        4
     )
 )
 
 
 validation1.metric(
 
-    "Distance from Coast "
-    "at Highest-HSI Cell",
+    "Highest-HSI Coast Distance",
 
     f"{best['distance_coast_km']:.2f} km"
 )
 
 
 validation2.metric(
-    "Nearest-Coast Dataset",
-    "NOAA NCEI"
+
+    "Nautical Miles",
+
+    f"{best['distance_coast_nm']:.2f} nm"
 )
 
 
 validation3.metric(
-    "HSI Weight",
-    "Not included"
+    "Coastline Dataset",
+    "NOAA NCEI"
 )
 
 
-st.info(
-    "This is a validation stage. The distance "
-    "is calculated from each E-AWARE grid "
-    "coordinate to the nearest coastline segment. "
-    "It does not currently increase or decrease "
-    "habitat suitability."
+validation4.metric(
+    "HSI Weight",
+    "Not included"
 )
 
 
@@ -4215,7 +4261,8 @@ validation_table = current_data[
         "lon",
         "hsi",
         "water_depth_m",
-        "distance_coast_km"
+        "distance_coast_km",
+        "distance_coast_nm"
     ]
 ].copy()
 
@@ -4294,6 +4341,18 @@ validation_table[
 )
 
 
+validation_table[
+    "distance_coast_nm"
+] = (
+    validation_table[
+        "distance_coast_nm"
+    ]
+    .round(
+        2
+    )
+)
+
+
 validation_table = (
     validation_table.rename(
 
@@ -4312,7 +4371,10 @@ validation_table = (
                 "GEBCO Depth Estimate (m)",
 
             "distance_coast_km":
-                "Distance from Coast (km)"
+                "Distance from Coast (km)",
+
+            "distance_coast_nm":
+                "Distance from Coast (nm)"
         }
     )
 )
@@ -4386,11 +4448,11 @@ reference4.metric(
 
 
 st.warning(
-    "V1.3 Step 1 continues to calculate HSI "
-    "from temperature, salinity and surface "
-    "dissolved oxygen. Bathymetry and distance "
-    "from coast are stored as spatial predictors "
-    "but are not yet assigned fixed suitability weights."
+    "V1.3 Step 2 still calculates HSI only from "
+    "temperature, salinity and surface dissolved oxygen. "
+    "Bathymetry and distance from coast are stored as "
+    "spatial predictors but are not yet assigned fixed "
+    "suitability weights."
 )
 
 
@@ -4425,7 +4487,8 @@ for forecast_date in available_dates:
             subset=[
                 "oxygen_ml_l",
                 "water_depth_m",
-                "distance_coast_km"
+                "distance_coast_km",
+                "distance_coast_nm"
             ]
         )
 
@@ -4455,7 +4518,36 @@ for forecast_date in available_dates:
     )
 
 
+    centre_coast_km = None
+    centre_coast_nm = None
+
+
     if centre is not None:
+
+        centre_coast_km = (
+            distance_to_nearest_coast_km(
+
+                centre[
+                    0
+                ],
+
+                centre[
+                    1
+                ],
+
+                coastline_lines
+            )
+        )
+
+
+        centre_coast_nm = (
+
+            centre_coast_km
+
+            /
+            KM_PER_NAUTICAL_MILE
+        )
+
 
         forecast_centres.append(
 
@@ -4471,7 +4563,13 @@ for forecast_date in available_dates:
                 "lon":
                     centre[
                         1
-                    ]
+                    ],
+
+                "distance_coast_km":
+                    centre_coast_km,
+
+                "distance_coast_nm":
+                    centre_coast_nm
             }
         )
 
@@ -4542,6 +4640,26 @@ for forecast_date in available_dates:
                     0
                 ),
 
+            "Distance Coast km":
+                round(
+                    float(
+                        best_forecast[
+                            "distance_coast_km"
+                        ]
+                    ),
+                    2
+                ),
+
+            "Distance Coast nm":
+                round(
+                    float(
+                        best_forecast[
+                            "distance_coast_nm"
+                        ]
+                    ),
+                    2
+                ),
+
             "SST Anomaly °C":
                 (
 
@@ -4561,6 +4679,7 @@ for forecast_date in available_dates:
                     )
 
                     else
+
                     None
                 ),
 
@@ -4577,6 +4696,7 @@ for forecast_date in available_dates:
                     if centre
 
                     else
+
                     None
                 ),
 
@@ -4593,6 +4713,39 @@ for forecast_date in available_dates:
                     if centre
 
                     else
+
+                    None
+                ),
+
+            "Centre Coast km":
+                (
+
+                    round(
+                        centre_coast_km,
+                        2
+                    )
+
+                    if centre_coast_km
+                    is not None
+
+                    else
+
+                    None
+                ),
+
+            "Centre Coast nm":
+                (
+
+                    round(
+                        centre_coast_nm,
+                        2
+                    )
+
+                    if centre_coast_nm
+                    is not None
+
+                    else
+
                     None
                 )
         }
@@ -4640,6 +4793,18 @@ east_west_text = (
     "—"
 )
 
+start_coast_text = (
+    "—"
+)
+
+end_coast_text = (
+    "—"
+)
+
+coastal_interpretation = (
+    "Unavailable"
+)
+
 
 start = None
 end = None
@@ -4654,6 +4819,7 @@ if len(
             0
         ]
     )
+
 
     end = (
         forecast_centres[
@@ -4759,7 +4925,6 @@ if len(
     if north_km > 0:
 
         north_south_text = (
-
             f"{abs(north_km):.2f} km North"
         )
 
@@ -4767,7 +4932,6 @@ if len(
     elif north_km < 0:
 
         north_south_text = (
-
             f"{abs(north_km):.2f} km South"
         )
 
@@ -4782,7 +4946,6 @@ if len(
     if east_km > 0:
 
         east_west_text = (
-
             f"{abs(east_km):.2f} km East"
         )
 
@@ -4790,7 +4953,6 @@ if len(
     elif east_km < 0:
 
         east_west_text = (
-
             f"{abs(east_km):.2f} km West"
         )
 
@@ -4814,6 +4976,61 @@ if len(
 
         direction_text = (
             "No clear shift"
+        )
+
+
+    start_coast_text = (
+
+        f"{start['distance_coast_km']:.2f} km / "
+        f"{start['distance_coast_nm']:.2f} nm"
+    )
+
+
+    end_coast_text = (
+
+        f"{end['distance_coast_km']:.2f} km / "
+        f"{end['distance_coast_nm']:.2f} nm"
+    )
+
+
+    coast_delta = (
+
+        end[
+            "distance_coast_km"
+        ]
+
+        -
+
+        start[
+            "distance_coast_km"
+        ]
+    )
+
+
+    if abs(
+        coast_delta
+    ) < 0.5:
+
+        coastal_interpretation = (
+            "No clear coastal/offshore change"
+        )
+
+
+    elif coast_delta < 0:
+
+        coastal_interpretation = (
+
+            f"Closer to coast by "
+            f"{abs(coast_delta):.2f} km"
+        )
+
+
+    else:
+
+        coastal_interpretation = (
+
+            f"Farther offshore by "
+            f"{abs(coast_delta):.2f} km"
         )
 
 
@@ -4852,6 +5069,10 @@ st.markdown(
 )
 
 
+# ============================================================
+# MOVEMENT BREAKDOWN
+# ============================================================
+
 st.markdown(
     "#### Movement Breakdown"
 )
@@ -4875,6 +5096,10 @@ movement2.metric(
     east_west_text
 )
 
+
+# ============================================================
+# HABITAT CENTRE POSITIONS
+# ============================================================
 
 st.markdown(
     "#### Habitat-Centre Positions"
@@ -4900,12 +5125,45 @@ position2.metric(
 )
 
 
+# ============================================================
+# COASTAL / OFFSHORE CHANGE
+# ============================================================
+
+st.markdown(
+    "#### Coastal / Offshore Change"
+)
+
+
+coast1, coast2, coast3 = (
+    st.columns(
+        3
+    )
+)
+
+
+coast1.metric(
+    "Start Distance from Coast",
+    start_coast_text
+)
+
+
+coast2.metric(
+    "+72 h Distance from Coast",
+    end_coast_text
+)
+
+
+coast3.metric(
+    "Interpretation",
+    coastal_interpretation
+)
+
+
 st.info(
-    "This is the forecast shift of the "
-    "relatively highest-suitability habitat "
-    "within the study area. It does not mean "
-    "individual anchoveta schools are being "
-    "directly tracked."
+    "The coastal/offshore interpretation describes "
+    "a change in the predicted centre of relatively "
+    "suitable habitat. It is not direct tracking of "
+    "individual anchoveta schools."
 )
 
 
@@ -5276,17 +5534,18 @@ if (
         f"**E-AWARE interpretation:** "
         f"The centre of the relatively most suitable "
         f"anchoveta habitat is forecast to shift "
-        f"**{distance_text} {direction_text.lower()}** "
-        f"over the forecast period, at a bearing of "
-        f"**{bearing_text}**."
+        f"**{distance_text} {direction_text.lower()}**. "
+        f"Relative to the coastline, it is predicted "
+        f"to be **{coastal_interpretation.lower()}**."
     )
 
 
 else:
 
     st.warning(
-        "Not enough forecast information is "
-        "available to draw the habitat-shift map."
+        "Not enough forecast information "
+        "is available to draw the "
+        "habitat-shift map."
     )
 
 
@@ -5312,7 +5571,7 @@ st.dataframe(
 
 
 # ============================================================
-# SMS PREVIEW
+# SMS ALERT PREVIEW
 # ============================================================
 
 st.subheader(
@@ -5351,8 +5610,8 @@ Predicted suitable-habitat shift:
 Estimated habitat shift:
 {distance_text}
 
-Bearing:
-{bearing_text}
+Relative to coastline:
+{coastal_interpretation}
 
 Sea temperature:
 {best['temperature']:.1f} °C
@@ -5363,8 +5622,11 @@ Salinity:
 Dissolved oxygen:
 {best['oxygen_ml_l']:.2f} mL/L
 
-GEBCO depth estimate at highest-HSI cell:
+GEBCO depth estimate:
 {best['water_depth_m']:.0f} m
+
+Distance from coast:
+{best['distance_coast_km']:.2f} km / {best['distance_coast_nm']:.2f} nm
 
 Check official fishing restrictions before departure.
 
@@ -5378,14 +5640,14 @@ st.text_area(
 
     sms_message,
 
-    height=430
+    height=500
 )
 
 
 st.caption(
-    "V1.3 Step 1 keeps distance from coast "
-    "out of the fisher-facing SMS while the "
-    "new calculation is being validated."
+    "Distance from coast is now shown in the "
+    "fisher-facing preview, but it still does "
+    "not contribute to the HSI score."
 )
 
 
@@ -5453,7 +5715,8 @@ source_table = pd.DataFrame(
                 "Static coastline geometry",
 
             "Use":
-                "V1.3 Step 1 nearest-coast distance calculation"
+                "Nearest-coast distance in km "
+                "and nautical miles"
         },
 
         {
@@ -5464,7 +5727,7 @@ source_table = pd.DataFrame(
                 "Scientific reference",
 
             "Use":
-                "Anchoveta temperature, salinity and oxygen ranges"
+                "Anchoveta environmental reference ranges"
         },
 
         {
@@ -5519,7 +5782,7 @@ st.dataframe(
 # ============================================================
 
 st.subheader(
-    "🧪 V1.3 Step 1 Model Status"
+    "🧪 V1.3 Step 2 Model Status"
 )
 
 
@@ -5531,16 +5794,19 @@ status1, status2 = (
 
 
 status1.success(
-    "Distance from coast is now calculated "
-    "and stored for every retained "
-    "E-AWARE ocean grid cell."
+    "Distance from coast is now stored in both "
+    "kilometres and nautical miles, shown on the "
+    "dashboard, mapped spatially, and used to "
+    "describe coastal/offshore habitat-centre movement."
 )
 
 
 status2.warning(
-    "Distance from coast is not yet weighted "
-    "in the HSI and has not yet been added "
-    "to final fisher-facing guidance."
+    "Distance from coast is still not weighted in "
+    "the HSI. A fixed suitability relationship will "
+    "not be introduced until it can be supported "
+    "through historical anchoveta observations or "
+    "a defensible model."
 )
 
 
@@ -5549,7 +5815,7 @@ status2.warning(
 # ============================================================
 
 with st.expander(
-    "⚙️ MVP V1.3 Step 1 Limitations"
+    "⚙️ MVP V1.3 Step 2 Limitations"
 ):
 
     st.markdown(
@@ -5567,30 +5833,39 @@ with st.expander(
 - Distance from nearest coastline
 - Season
 
-### Distance-to-coast treatment
+### Distance from coast
 
-The app requests local coastline geometry around the
-E-AWARE study area and calculates the shortest distance
-between each retained ocean grid coordinate and the
-nearest coastline segment.
+E-AWARE calculates the shortest distance between each
+retained ocean grid coordinate and the nearest local
+NOAA coastline segment.
 
-The result is stored as:
+The value is stored in both:
 
-**distance_coast_km**
+- **kilometres**
+- **nautical miles**, using **1 nautical mile = 1.852 km**
 
-This is currently a validation stage only.
+Distance from coast remains a spatial predictor only
+and is not yet included in the HSI weighting.
 
-Distance from coast does **not** increase or decrease
-the HSI yet.
+### Coastal/offshore shift
+
+The app calculates the distance from the coastline for
+the current predicted habitat centre and the +72 h
+habitat centre.
+
+It then reports whether the predicted habitat centre
+becomes closer to the coastline or farther offshore.
+
+This describes movement of predicted suitable habitat,
+not direct movement of individual anchoveta schools.
 
 ### Distance calculation limitation
 
 The point-to-segment calculation uses a local
 latitude/longitude-to-kilometre approximation.
 
-This is suitable for the small project study area
-but is not intended for navigation or survey-grade
-positioning.
+This is suitable for the small project study area but
+is not intended for navigation or survey-grade positioning.
 
 ### Bathymetry treatment
 
@@ -5600,23 +5875,13 @@ is not assigned a hand-built HSI score.
 ### Oxygen limitation
 
 The Copernicus biogeochemistry oxygen product is
-coarser than the physics grid, so each physics cell
-is mapped to the nearest oxygen grid cell for the
-same day.
+coarser than the physics grid.
 
-### Habitat-shift calculation
+Each physics cell is therefore mapped to the nearest
+available oxygen grid cell for the same day.
 
-E-AWARE calculates the centre of the top 25%
-highest-scoring habitat cells for each forecast day.
+### Still not integrated
 
-The movement shown is a shift in predicted habitat
-suitability, not direct tracking of anchoveta.
-
-### Not yet integrated
-
-- Distance from coast in nautical miles
-- Distance-from-coast map layer
-- Coastal/offshore habitat-shift interpretation
 - Distance-from-coast HSI weighting
 - Oxycline depth
 - Chlorophyll
@@ -5636,7 +5901,7 @@ st.divider()
 
 
 st.caption(
-    "E-AWARE MVP V1.3 Step 1 | "
+    "E-AWARE MVP V1.3 Step 2 | "
     "El Niño Adaptive Fisheries Intelligence | "
     "Decision-support research prototype"
 )
