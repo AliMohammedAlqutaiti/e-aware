@@ -17,83 +17,192 @@ import xarray as xr
 # PAGE / STUDY AREA
 # ============================================================
 
-st.set_page_config(page_title="E-AWARE", page_icon="🐟", layout="wide")
+st.set_page_config(
+    page_title="E-AWARE",
+    page_icon="🐟",
+    layout="wide"
+)
+
 st.title("🐟 E-AWARE")
-st.caption("El Niño Adaptive Fisheries Intelligence — MVP V1.4 Step 2")
+
+st.caption(
+    "El Niño Adaptive Fisheries Intelligence — MVP V1.4 Step 3"
+)
+
 st.info(
-    "E-AWARE estimates suitable anchoveta habitat from environmental conditions. "
-    "It does not show the exact location or swimming direction of individual fish schools."
+    "E-AWARE estimates suitable anchoveta habitat from "
+    "environmental conditions. It does not show the exact "
+    "location or swimming direction of individual fish schools."
 )
 
-MIN_LON, MAX_LON = -81.50, -81.20
-MIN_LAT, MAX_LAT = -4.60, -4.36
 
-COMMUNITIES = pd.DataFrame([
-    {"name": "Lobitos", "lat": -4.4567, "lon": -81.2849},
-    {"name": "Siches", "lat": -4.4890, "lon": -81.2680},
-    {"name": "Piedritas", "lat": -4.5190, "lon": -81.2630},
-])
+MIN_LON = -81.50
+MAX_LON = -81.20
 
-TEMPERATURE_DATASET = "cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m"
-SALINITY_DATASET = "cmems_mod_glo_phy-so_anfc_0.083deg_P1D-m"
-SST_ANOMALY_DATASET = "cmems_mod_glo_phy_anfc_0.083deg-sst-anomaly_P1D-m"
-OXYGEN_DATASET = "cmems_mod_glo_bgc-bio_anfc_0.25deg_P1D-m"
+MIN_LAT = -4.60
+MAX_LAT = -4.36
 
-GEBCO_API_URL = "https://api.odb.ntu.edu.tw/gebco"
+
+COMMUNITIES = pd.DataFrame(
+    [
+        {
+            "name": "Lobitos",
+            "lat": -4.4567,
+            "lon": -81.2849
+        },
+        {
+            "name": "Siches",
+            "lat": -4.4890,
+            "lon": -81.2680
+        },
+        {
+            "name": "Piedritas",
+            "lat": -4.5190,
+            "lon": -81.2630
+        }
+    ]
+)
+
+
+# ============================================================
+# DATA SOURCES
+# ============================================================
+
+TEMPERATURE_DATASET = (
+    "cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m"
+)
+
+SALINITY_DATASET = (
+    "cmems_mod_glo_phy-so_anfc_0.083deg_P1D-m"
+)
+
+SST_ANOMALY_DATASET = (
+    "cmems_mod_glo_phy_anfc_0.083deg-sst-anomaly_P1D-m"
+)
+
+OXYGEN_DATASET = (
+    "cmems_mod_glo_bgc-bio_anfc_0.25deg_P1D-m"
+)
+
+
+GEBCO_API_URL = (
+    "https://api.odb.ntu.edu.tw/gebco"
+)
+
+
 NOAA_COASTLINE_QUERY_URL = (
-    "https://gis.ngdc.noaa.gov/arcgis/rest/services/EMAG2v3/MapServer/1/query"
+    "https://gis.ngdc.noaa.gov/"
+    "arcgis/rest/services/"
+    "EMAG2v3/MapServer/1/query"
 )
-BASEMAP_URL = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
+
+
+BASEMAP_URL = (
+    "https://basemaps.cartocdn.com/"
+    "gl/positron-gl-style/style.json"
+)
+
 
 COASTLINE_QUERY_MARGIN_DEG = 0.75
+
 KM_PER_NAUTICAL_MILE = 1.852
+
 OXYGEN_MMOL_M3_TO_ML_L = 0.0223916
+
 OXYCLINE_THRESHOLD_ML_L = 1.0
 
 
 # ============================================================
-# COPERNICUS
+# COPERNICUS CREDENTIALS
 # ============================================================
 
 def get_credentials():
-    username = st.secrets.get("COPERNICUS_USERNAME", "")
-    password = st.secrets.get("COPERNICUS_PASSWORD", "")
+
+    username = st.secrets.get(
+        "COPERNICUS_USERNAME",
+        ""
+    )
+
+    password = st.secrets.get(
+        "COPERNICUS_PASSWORD",
+        ""
+    )
+
     if not username or not password:
-        raise RuntimeError("Copernicus credentials are missing from Streamlit Secrets.")
+
+        raise RuntimeError(
+            "Copernicus credentials are missing "
+            "from Streamlit Secrets."
+        )
+
     return username, password
 
 
-def prepare_dataframe(dataframe, variable_name):
+# ============================================================
+# PREPARE STANDARD COPERNICUS DATA
+# ============================================================
+
+def prepare_dataframe(
+    dataframe,
+    variable_name
+):
+
     df = dataframe.copy()
+
     rename_map = {}
 
     for column in df.columns:
-        c = str(column).lower()
 
-        if c in ["latitude", "lat"]:
-            rename_map[column] = "lat"
+        column_lower = str(
+            column
+        ).lower()
 
-        elif c in ["longitude", "lon"]:
-            rename_map[column] = "lon"
+        if column_lower in [
+            "latitude",
+            "lat"
+        ]:
 
-    df = df.rename(columns=rename_map)
+            rename_map[
+                column
+            ] = "lat"
 
-    required = [
+        elif column_lower in [
+            "longitude",
+            "lon"
+        ]:
+
+            rename_map[
+                column
+            ] = "lon"
+
+
+    df = df.rename(
+        columns=rename_map
+    )
+
+
+    required_columns = [
         "time",
         "lat",
         "lon",
         variable_name
     ]
 
+
     missing = [
-        c for c in required
-        if c not in df.columns
+        column
+        for column in required_columns
+        if column not in df.columns
     ]
 
+
     if missing:
+
         raise RuntimeError(
-            f"Missing columns for {variable_name}: {missing}"
+            f"Missing columns for "
+            f"{variable_name}: {missing}"
         )
+
 
     df = df.dropna(
         subset=[
@@ -101,15 +210,66 @@ def prepare_dataframe(dataframe, variable_name):
         ]
     ).copy()
 
-    df["date"] = pd.to_datetime(
-        df["time"]
-    ).dt.date
 
-    df["lat"] = df["lat"].astype(float)
-    df["lon"] = df["lon"].astype(float)
+    df[
+        "date"
+    ] = (
+        pd.to_datetime(
+            df[
+                "time"
+            ]
+        )
+        .dt.date
+    )
 
-    df["lat_key"] = df["lat"].round(3)
-    df["lon_key"] = df["lon"].round(3)
+
+    df[
+        "lat"
+    ] = (
+        df[
+            "lat"
+        ]
+        .astype(
+            float
+        )
+    )
+
+
+    df[
+        "lon"
+    ] = (
+        df[
+            "lon"
+        ]
+        .astype(
+            float
+        )
+    )
+
+
+    df[
+        "lat_key"
+    ] = (
+        df[
+            "lat"
+        ]
+        .round(
+            3
+        )
+    )
+
+
+    df[
+        "lon_key"
+    ] = (
+        df[
+            "lon"
+        ]
+        .round(
+            3
+        )
+    )
+
 
     return df[
         [
@@ -123,6 +283,69 @@ def prepare_dataframe(dataframe, variable_name):
     ]
 
 
+# ============================================================
+# FILE HELPER
+# ============================================================
+
+def resolve_downloaded_file(
+    response,
+    temp_dir,
+    filename
+):
+
+    possible_path = Path(
+        str(
+            response.file_path
+        )
+    )
+
+
+    if possible_path.exists():
+
+        return possible_path
+
+
+    expected_path = (
+        Path(
+            temp_dir
+        )
+        /
+        filename
+    )
+
+
+    if expected_path.exists():
+
+        return expected_path
+
+
+    candidates = list(
+        Path(
+            temp_dir
+        )
+        .glob(
+            "*.nc"
+        )
+    )
+
+
+    if not candidates:
+
+        raise RuntimeError(
+            "Copernicus download completed "
+            "but no NetCDF file was found."
+        )
+
+
+    return candidates[
+        0
+    ]
+
+
+# ============================================================
+# DOWNLOAD STANDARD COPERNICUS SUBSET
+# ============================================================
+
 def download_subset(
     dataset_id,
     variable,
@@ -131,102 +354,157 @@ def download_subset(
     end_date,
     use_depth=True
 ):
-    username, password = get_credentials()
+
+    username, password = (
+        get_credentials()
+    )
+
 
     os.environ[
         "COPERNICUSMARINE_TRUST_ENV"
     ] = "False"
 
+
     with tempfile.TemporaryDirectory() as temp_dir:
 
-        filename = f"{output_name}.nc"
+        filename = (
+            f"{output_name}.nc"
+        )
 
-        args = {
-            "dataset_id": dataset_id,
-            "variables": [variable],
-            "minimum_longitude": MIN_LON,
-            "maximum_longitude": MAX_LON,
-            "minimum_latitude": MIN_LAT,
-            "maximum_latitude": MAX_LAT,
-            "start_datetime": f"{start_date}T00:00:00",
-            "end_datetime": f"{end_date}T23:59:59",
-            "username": username,
-            "password": password,
-            "service": "arco-geo-series",
-            "output_filename": filename,
-            "output_directory": temp_dir,
-            "disable_progress_bar": True,
+
+        subset_arguments = {
+
+            "dataset_id":
+                dataset_id,
+
+            "variables":
+                [
+                    variable
+                ],
+
+            "minimum_longitude":
+                MIN_LON,
+
+            "maximum_longitude":
+                MAX_LON,
+
+            "minimum_latitude":
+                MIN_LAT,
+
+            "maximum_latitude":
+                MAX_LAT,
+
+            "start_datetime":
+                f"{start_date}T00:00:00",
+
+            "end_datetime":
+                f"{end_date}T23:59:59",
+
+            "username":
+                username,
+
+            "password":
+                password,
+
+            "service":
+                "arco-geo-series",
+
+            "output_filename":
+                filename,
+
+            "output_directory":
+                temp_dir,
+
+            "disable_progress_bar":
+                True
         }
 
+
         if use_depth:
-            args["minimum_depth"] = 0
-            args["maximum_depth"] = 1
 
-        response = copernicusmarine.subset(
-            **args
-        )
+            subset_arguments[
+                "minimum_depth"
+            ] = 0
 
-        possible = Path(
-            str(
-                response.file_path
+            subset_arguments[
+                "maximum_depth"
+            ] = 1
+
+
+        response = (
+            copernicusmarine.subset(
+                **subset_arguments
             )
         )
+
 
         file_path = (
-            possible
-            if possible.exists()
-            else Path(temp_dir) / filename
+            resolve_downloaded_file(
+
+                response,
+
+                temp_dir,
+
+                filename
+            )
         )
 
-        if not file_path.exists():
-
-            candidates = list(
-                Path(temp_dir).glob("*.nc")
-            )
-
-            if not candidates:
-                raise RuntimeError(
-                    f"{output_name} download completed "
-                    "but no NetCDF file was found."
-                )
-
-            file_path = candidates[0]
 
         with xr.open_dataset(
             file_path
         ) as ds:
 
+
             if variable not in ds.data_vars:
 
                 raise RuntimeError(
                     f"Variable '{variable}' "
-                    f"was not found in {output_name}."
+                    f"was not found in "
+                    f"{output_name}."
                 )
 
-            da = ds[
-                variable
-            ]
 
-            if "depth" in da.dims:
+            data_array = (
+                ds[
+                    variable
+                ]
+            )
 
-                da = da.isel(
-                    depth=0
+
+            if "depth" in data_array.dims:
+
+                data_array = (
+                    data_array.isel(
+                        depth=0
+                    )
                 )
 
-            df = (
-                da
+
+            dataframe = (
+
+                data_array
+
                 .load()
+
                 .to_dataframe(
                     name=output_name
                 )
+
                 .reset_index()
             )
 
+
     return prepare_dataframe(
-        df,
+
+        dataframe,
+
         output_name
     )
 
+
+# ============================================================
+# STANDARD COPERNICUS LOADERS
+# ============================================================
 
 @st.cache_data(
     ttl=1800,
@@ -238,11 +516,17 @@ def load_temperature(
 ):
 
     return download_subset(
+
         TEMPERATURE_DATASET,
+
         "thetao",
+
         "temperature",
+
         start_date,
+
         end_date,
+
         True
     )
 
@@ -257,11 +541,17 @@ def load_salinity(
 ):
 
     return download_subset(
+
         SALINITY_DATASET,
+
         "so",
+
         "salinity",
+
         start_date,
+
         end_date,
+
         True
     )
 
@@ -276,11 +566,17 @@ def load_sst_anomaly(
 ):
 
     return download_subset(
+
         SST_ANOMALY_DATASET,
+
         "sea_surface_temperature_anomaly",
+
         "sst_anomaly",
+
         start_date,
+
         end_date,
+
         False
     )
 
@@ -298,88 +594,125 @@ def load_oxygen_profile(
     end_date
 ):
 
-    username, password = get_credentials()
+    username, password = (
+        get_credentials()
+    )
+
 
     os.environ[
         "COPERNICUSMARINE_TRUST_ENV"
     ] = "False"
 
+
     with tempfile.TemporaryDirectory() as temp_dir:
 
-        filename = "oxygen_profile.nc"
-
-        response = copernicusmarine.subset(
-            dataset_id=OXYGEN_DATASET,
-            variables=["o2"],
-            minimum_longitude=MIN_LON,
-            maximum_longitude=MAX_LON,
-            minimum_latitude=MIN_LAT,
-            maximum_latitude=MAX_LAT,
-            start_datetime=f"{start_date}T00:00:00",
-            end_datetime=f"{end_date}T23:59:59",
-            username=username,
-            password=password,
-            service="arco-geo-series",
-            output_filename=filename,
-            output_directory=temp_dir,
-            disable_progress_bar=True,
+        filename = (
+            "oxygen_profile.nc"
         )
 
-        possible = Path(
-            str(
-                response.file_path
+
+        response = (
+            copernicusmarine.subset(
+
+                dataset_id=
+                    OXYGEN_DATASET,
+
+                variables=
+                    [
+                        "o2"
+                    ],
+
+                minimum_longitude=
+                    MIN_LON,
+
+                maximum_longitude=
+                    MAX_LON,
+
+                minimum_latitude=
+                    MIN_LAT,
+
+                maximum_latitude=
+                    MAX_LAT,
+
+                start_datetime=
+                    f"{start_date}T00:00:00",
+
+                end_datetime=
+                    f"{end_date}T23:59:59",
+
+                username=
+                    username,
+
+                password=
+                    password,
+
+                service=
+                    "arco-geo-series",
+
+                output_filename=
+                    filename,
+
+                output_directory=
+                    temp_dir,
+
+                disable_progress_bar=
+                    True
             )
         )
+
 
         file_path = (
-            possible
-            if possible.exists()
-            else Path(temp_dir) / filename
+            resolve_downloaded_file(
+
+                response,
+
+                temp_dir,
+
+                filename
+            )
         )
 
-        if not file_path.exists():
-
-            candidates = list(
-                Path(temp_dir).glob("*.nc")
-            )
-
-            if not candidates:
-                raise RuntimeError(
-                    "No NetCDF file was found "
-                    "for the oxygen profile."
-                )
-
-            file_path = candidates[0]
 
         with xr.open_dataset(
             file_path
         ) as ds:
 
+
             if "o2" not in ds.data_vars:
 
                 raise RuntimeError(
-                    "Variable 'o2' was not found "
-                    "in the oxygen-profile file."
+                    "Variable 'o2' was not "
+                    "found in the oxygen-profile file."
                 )
 
-            df = (
-                ds["o2"]
+
+            dataframe = (
+
+                ds[
+                    "o2"
+                ]
+
                 .load()
+
                 .to_dataframe(
                     name="oxygen_mmol_m3"
                 )
+
                 .reset_index()
             )
 
+
     rename_map = {}
 
-    for column in df.columns:
 
-        c = str(
+    for column in dataframe.columns:
+
+        column_lower = str(
             column
         ).lower()
 
-        if c in [
+
+        if column_lower in [
             "latitude",
             "lat"
         ]:
@@ -388,7 +721,8 @@ def load_oxygen_profile(
                 column
             ] = "lat"
 
-        elif c in [
+
+        elif column_lower in [
             "longitude",
             "lon"
         ]:
@@ -397,11 +731,15 @@ def load_oxygen_profile(
                 column
             ] = "lon"
 
-    df = df.rename(
-        columns=rename_map
+
+    dataframe = (
+        dataframe.rename(
+            columns=rename_map
+        )
     )
 
-    required = [
+
+    required_columns = [
         "time",
         "depth",
         "lat",
@@ -409,56 +747,129 @@ def load_oxygen_profile(
         "oxygen_mmol_m3"
     ]
 
+
     missing = [
-        c for c in required
-        if c not in df.columns
+        column
+        for column in required_columns
+        if column not in dataframe.columns
     ]
 
+
     if missing:
+
         raise RuntimeError(
-            f"Missing oxygen-profile columns: {missing}"
+            f"Missing oxygen-profile "
+            f"columns: {missing}"
         )
 
-    df = df.dropna(
-        subset=[
-            "oxygen_mmol_m3",
+
+    dataframe = (
+
+        dataframe
+
+        .dropna(
+            subset=[
+                "oxygen_mmol_m3",
+                "depth"
+            ]
+        )
+
+        .copy()
+    )
+
+
+    dataframe[
+        "date"
+    ] = (
+
+        pd.to_datetime(
+            dataframe[
+                "time"
+            ]
+        )
+
+        .dt.date
+    )
+
+
+    dataframe[
+        "depth"
+    ] = (
+        dataframe[
             "depth"
         ]
-    ).copy()
+        .astype(
+            float
+        )
+    )
 
-    df["date"] = pd.to_datetime(
-        df["time"]
-    ).dt.date
 
-    df["depth"] = df[
-        "depth"
-    ].astype(float)
-
-    df["lat"] = df[
+    dataframe[
         "lat"
-    ].astype(float)
+    ] = (
+        dataframe[
+            "lat"
+        ]
+        .astype(
+            float
+        )
+    )
 
-    df["lon"] = df[
+
+    dataframe[
         "lon"
-    ].astype(float)
+    ] = (
+        dataframe[
+            "lon"
+        ]
+        .astype(
+            float
+        )
+    )
 
-    df["lat_key"] = df[
-        "lat"
-    ].round(3)
 
-    df["lon_key"] = df[
-        "lon"
-    ].round(3)
+    dataframe[
+        "lat_key"
+    ] = (
+        dataframe[
+            "lat"
+        ]
+        .round(
+            3
+        )
+    )
 
-    df["oxygen_ml_l"] = (
-        df[
+
+    dataframe[
+        "lon_key"
+    ] = (
+        dataframe[
+            "lon"
+        ]
+        .round(
+            3
+        )
+    )
+
+
+    dataframe[
+        "oxygen_ml_l"
+    ] = (
+
+        dataframe[
             "oxygen_mmol_m3"
-        ].astype(float)
+        ]
+
+        .astype(
+            float
+        )
+
         *
         OXYGEN_MMOL_M3_TO_ML_L
     )
 
-    return df[
+
+    return dataframe[
         [
             "date",
             "depth",
@@ -472,26 +883,36 @@ def load_oxygen_profile(
     ]
 
 
+# ============================================================
+# SURFACE OXYGEN FROM 3D PROFILE
+# ============================================================
+
 def surface_oxygen_from_profile(
     profile
 ):
 
     return (
+
         profile
+
         .sort_values(
             "depth"
         )
+
         .groupby(
             [
                 "date",
                 "lat_key",
                 "lon_key"
             ],
+
             as_index=False
         )
+
         .head(
             1
         )
+
         [
             [
                 "date",
@@ -503,9 +924,14 @@ def surface_oxygen_from_profile(
                 "oxygen_ml_l"
             ]
         ]
+
         .copy()
     )
 
+
+# ============================================================
+# OXYCLINE CROSSING CALCULATION
+# ============================================================
 
 def estimate_oxycline_depth(
     profile,
@@ -514,16 +940,20 @@ def estimate_oxycline_depth(
 ):
 
     clean = (
+
         profile[
             [
                 "depth",
                 "oxygen_ml_l"
             ]
         ]
+
         .dropna()
+
         .sort_values(
             "depth"
         )
+
         .drop_duplicates(
             subset=[
                 "depth"
@@ -531,208 +961,176 @@ def estimate_oxycline_depth(
         )
     )
 
+
     if clean.empty:
+
         return (
             np.nan,
             "No valid oxygen profile"
         )
 
-    depths = clean[
-        "depth"
-    ].to_numpy(
-        dtype=float
+
+    depths = (
+        clean[
+            "depth"
+        ]
+        .to_numpy(
+            dtype=float
+        )
     )
 
-    oxygen = clean[
-        "oxygen_ml_l"
-    ].to_numpy(
-        dtype=float
+
+    oxygen = (
+        clean[
+            "oxygen_ml_l"
+        ]
+        .to_numpy(
+            dtype=float
+        )
     )
+
 
     if oxygen[
         0
     ] <= threshold_ml_l:
 
         return (
+
             float(
                 depths[
                     0
                 ]
             ),
-            "Threshold reached at shallowest model level"
+
+            (
+                "Threshold reached at "
+                "shallowest model level"
+            )
         )
 
-    for i in range(
+
+    for index in range(
         1,
         len(
             depths
         )
     ):
 
-        o1 = oxygen[
-            i - 1
-        ]
 
-        o2 = oxygen[
-            i
-        ]
+        upper_oxygen = (
+            oxygen[
+                index
+                -
+                1
+            ]
+        )
+
+
+        lower_oxygen = (
+            oxygen[
+                index
+            ]
+        )
+
 
         if (
-            o1
+            upper_oxygen
             >
             threshold_ml_l
+
             and
-            o2
+
+            lower_oxygen
             <=
             threshold_ml_l
         ):
 
-            d1 = depths[
-                i - 1
-            ]
 
-            d2 = depths[
-                i
-            ]
+            upper_depth = (
+                depths[
+                    index
+                    -
+                    1
+                ]
+            )
 
-            if o2 == o1:
 
-                crossing = d2
+            lower_depth = (
+                depths[
+                    index
+                ]
+            )
+
+
+            if (
+                lower_oxygen
+                ==
+                upper_oxygen
+            ):
+
+                crossing_depth = (
+                    lower_depth
+                )
+
 
             else:
 
                 fraction = (
+
                     threshold_ml_l
                     -
-                    o1
+                    upper_oxygen
+
                 ) / (
-                    o2
+
+                    lower_oxygen
                     -
-                    o1
+                    upper_oxygen
                 )
 
-                crossing = (
-                    d1
+
+                crossing_depth = (
+
+                    upper_depth
+
                     +
+
                     fraction
                     *
                     (
-                        d2
+                        lower_depth
                         -
-                        d1
+                        upper_depth
                     )
                 )
 
+
             return (
+
                 float(
-                    crossing
+                    crossing_depth
                 ),
-                "Interpolated 1 mL/L crossing"
+
+                (
+                    "Interpolated "
+                    "1 mL/L crossing"
+                )
             )
+
 
     return (
+
         np.nan,
-        "1 mL/L threshold not reached in available BGC profile"
-    )
 
-
-def calculate_oxycline_table(
-    profile
-):
-
-    records = []
-
-    for (
-        target_date,
-        lat_key,
-        lon_key
-    ), group in profile.groupby(
-        [
-            "date",
-            "lat_key",
-            "lon_key"
-        ]
-    ):
-
-        group = group.sort_values(
-            "depth"
+        (
+            "1 mL/L threshold not reached "
+            "in available profile"
         )
-
-        raw_depth, raw_status = (
-            estimate_oxycline_depth(
-                group
-            )
-        )
-
-        records.append(
-            {
-                "date":
-                    target_date,
-
-                "lat":
-                    float(
-                        group[
-                            "lat"
-                        ].iloc[
-                            0
-                        ]
-                    ),
-
-                "lon":
-                    float(
-                        group[
-                            "lon"
-                        ].iloc[
-                            0
-                        ]
-                    ),
-
-                "lat_key":
-                    float(
-                        lat_key
-                    ),
-
-                "lon_key":
-                    float(
-                        lon_key
-                    ),
-
-                "raw_oxycline_depth_m":
-                    raw_depth,
-
-                "raw_oxycline_status":
-                    raw_status,
-
-                "profile_min_depth_m":
-                    float(
-                        group[
-                            "depth"
-                        ].min()
-                    ),
-
-                "profile_max_depth_m":
-                    float(
-                        group[
-                            "depth"
-                        ].max()
-                    ),
-
-                "profile_levels":
-                    int(
-                        group[
-                            "depth"
-                        ].nunique()
-                    )
-            }
-        )
-
-    return pd.DataFrame(
-        records
     )
 
 
 # ============================================================
-# MERGE / NEAREST BGC MAPPING
+# MERGE PHYSICS DATA
 # ============================================================
 
 def merge_physics_data(
@@ -747,9 +1145,13 @@ def merge_physics_data(
         "lon_key"
     ]
 
+
     merged = (
+
         temperature
+
         .merge(
+
             salinity[
                 keys
                 +
@@ -757,10 +1159,14 @@ def merge_physics_data(
                     "salinity"
                 ]
             ],
+
             on=keys,
+
             how="inner"
         )
+
         .merge(
+
             anomaly[
                 keys
                 +
@@ -768,341 +1174,322 @@ def merge_physics_data(
                     "sst_anomaly"
                 ]
             ],
+
             on=keys,
+
             how="left"
         )
     )
 
+
     if merged.empty:
 
         raise RuntimeError(
-            "No matching physics grid cells were found."
+            "No matching physics grid "
+            "cells were found."
         )
+
 
     return merged
 
+
+# ============================================================
+# NEAREST GRID SOURCE
+# ============================================================
 
 def nearest_source_indices(
     target_rows,
     source_rows
 ):
 
-    target_lat = target_rows[
-        "lat"
-    ].to_numpy(
-        dtype=float
+    target_lat = (
+        target_rows[
+            "lat"
+        ]
+        .to_numpy(
+            dtype=float
+        )
     )
 
-    target_lon = target_rows[
-        "lon"
-    ].to_numpy(
-        dtype=float
+
+    target_lon = (
+        target_rows[
+            "lon"
+        ]
+        .to_numpy(
+            dtype=float
+        )
     )
 
-    source_lat = source_rows[
-        "lat"
-    ].to_numpy(
-        dtype=float
+
+    source_lat = (
+        source_rows[
+            "lat"
+        ]
+        .to_numpy(
+            dtype=float
+        )
     )
 
-    source_lon = source_rows[
-        "lon"
-    ].to_numpy(
-        dtype=float
+
+    source_lon = (
+        source_rows[
+            "lon"
+        ]
+        .to_numpy(
+            dtype=float
+        )
     )
 
-    dlat = (
+
+    dlat_km = (
+
         target_lat[
             :,
             None
         ]
+
         -
+
         source_lat[
             None,
             :
         ]
+
     ) * 111.32
 
-    mean_lat = np.radians(
+
+    mean_latitude = np.radians(
+
         (
+
             target_lat[
                 :,
                 None
             ]
+
             +
+
             source_lat[
                 None,
                 :
             ]
+
         )
+
         /
         2.0
     )
 
-    dlon = (
+
+    dlon_km = (
+
         target_lon[
             :,
             None
         ]
+
         -
+
         source_lon[
             None,
             :
         ]
+
     ) * (
+
         111.32
         *
         np.cos(
-            mean_lat
+            mean_latitude
         )
     )
 
-    distance = np.sqrt(
-        dlat
+
+    distance_km = np.sqrt(
+
+        dlat_km
         ** 2
+
         +
-        dlon
+
+        dlon_km
         ** 2
     )
 
-    idx = np.argmin(
-        distance,
+
+    nearest_index = np.argmin(
+
+        distance_km,
+
         axis=1
     )
 
-    nearest_distance = distance[
+
+    nearest_distance = distance_km[
+
         np.arange(
             len(
                 target_rows
             )
         ),
-        idx
+
+        nearest_index
     ]
 
+
     return (
-        idx,
+        nearest_index,
         nearest_distance
     )
 
+
+# ============================================================
+# ATTACH SURFACE OXYGEN
+# ============================================================
 
 def attach_nearest_oxygen(
     physics,
     oxygen
 ):
 
-    result = physics.copy()
+    result = (
+        physics.copy()
+    )
+
 
     result[
         "oxygen_mmol_m3"
     ] = np.nan
 
+
     result[
         "oxygen_ml_l"
     ] = np.nan
+
 
     result[
         "oxygen_source_distance_km"
     ] = np.nan
 
+
     for target_date in sorted(
         result[
             "date"
-        ].unique()
+        ]
+        .unique()
     ):
 
-        mask = (
+
+        target_mask = (
+
             result[
                 "date"
             ]
+
             ==
             target_date
         )
 
-        target = result.loc[
-            mask
-        ]
 
-        source = oxygen[
+        target_rows = (
+            result.loc[
+                target_mask
+            ]
+        )
+
+
+        source_rows = oxygen[
+
             oxygen[
                 "date"
             ]
+
             ==
             target_date
+
         ]
 
-        if source.empty:
+
+        if source_rows.empty:
+
             continue
 
-        idx, dist = (
-            nearest_source_indices(
-                target,
-                source
+
+        (
+            nearest_index,
+            nearest_distance
+        ) = nearest_source_indices(
+
+            target_rows,
+
+            source_rows
+        )
+
+
+        nearest_rows = (
+
+            source_rows
+
+            .iloc[
+                nearest_index
+            ]
+        )
+
+
+        result.loc[
+            target_mask,
+            "oxygen_mmol_m3"
+        ] = (
+
+            nearest_rows[
+                "oxygen_mmol_m3"
+            ]
+
+            .to_numpy(
+                dtype=float
             )
         )
 
-        nearest = source.iloc[
-            idx
-        ]
 
         result.loc[
-            mask,
-            "oxygen_mmol_m3"
-        ] = nearest[
-            "oxygen_mmol_m3"
-        ].to_numpy(
-            float
+            target_mask,
+            "oxygen_ml_l"
+        ] = (
+
+            nearest_rows[
+                "oxygen_ml_l"
+            ]
+
+            .to_numpy(
+                dtype=float
+            )
         )
 
-        result.loc[
-            mask,
-            "oxygen_ml_l"
-        ] = nearest[
-            "oxygen_ml_l"
-        ].to_numpy(
-            float
-        )
 
         result.loc[
-            mask,
+            target_mask,
             "oxygen_source_distance_km"
-        ] = dist
+        ] = (
+            nearest_distance
+        )
+
 
     if result[
         "oxygen_ml_l"
     ].isna().all():
 
         raise RuntimeError(
-            "Oxygen data could not be matched "
-            "to the physics grid."
+            "Oxygen data could not be "
+            "matched to the physics grid."
         )
 
-    return result
-
-
-def attach_nearest_oxycline(
-    physics,
-    oxycline
-):
-
-    result = physics.copy()
-
-    result[
-        "raw_oxycline_depth_m"
-    ] = np.nan
-
-    result[
-        "raw_oxycline_status"
-    ] = None
-
-    result[
-        "oxycline_source_distance_km"
-    ] = np.nan
-
-    result[
-        "oxycline_profile_max_depth_m"
-    ] = np.nan
-
-    result[
-        "oxycline_profile_levels"
-    ] = np.nan
-
-    mapped = False
-
-    for target_date in sorted(
-        result[
-            "date"
-        ].unique()
-    ):
-
-        mask = (
-            result[
-                "date"
-            ]
-            ==
-            target_date
-        )
-
-        target = result.loc[
-            mask
-        ]
-
-        source = oxycline[
-            oxycline[
-                "date"
-            ]
-            ==
-            target_date
-        ]
-
-        if source.empty:
-            continue
-
-        idx, dist = (
-            nearest_source_indices(
-                target,
-                source
-            )
-        )
-
-        nearest = source.iloc[
-            idx
-        ]
-
-        result.loc[
-            mask,
-            "raw_oxycline_depth_m"
-        ] = nearest[
-            "raw_oxycline_depth_m"
-        ].to_numpy(
-            float
-        )
-
-        result.loc[
-            mask,
-            "raw_oxycline_status"
-        ] = nearest[
-            "raw_oxycline_status"
-        ].astype(
-            str
-        ).to_numpy()
-
-        result.loc[
-            mask,
-            "oxycline_source_distance_km"
-        ] = dist
-
-        result.loc[
-            mask,
-            "oxycline_profile_max_depth_m"
-        ] = nearest[
-            "profile_max_depth_m"
-        ].to_numpy(
-            float
-        )
-
-        result.loc[
-            mask,
-            "oxycline_profile_levels"
-        ] = nearest[
-            "profile_levels"
-        ].to_numpy(
-            float
-        )
-
-        mapped = True
-
-    if not mapped:
-
-        raise RuntimeError(
-            "Oxycline results could not "
-            "be matched to the E-AWARE grid."
-        )
 
     return result
 
 
 # ============================================================
-# GEBCO
+# GEBCO JSON HELPERS
 # ============================================================
 
 def first_numeric(
@@ -1110,7 +1497,9 @@ def first_numeric(
 ):
 
     if value is None:
+
         return None
+
 
     if isinstance(
         value,
@@ -1126,13 +1515,14 @@ def first_numeric(
             value
         )
 
-        return (
+        if math.isfinite(
             value
-            if math.isfinite(
-                value
-            )
-            else None
-        )
+        ):
+
+            return value
+
+        return None
+
 
     if isinstance(
         value,
@@ -1145,17 +1535,16 @@ def first_numeric(
                 value
             )
 
-            return (
+            if math.isfinite(
                 value
-                if math.isfinite(
-                    value
-                )
-                else None
-            )
+            ):
+
+                return value
 
         except ValueError:
 
             return None
+
 
     if isinstance(
         value,
@@ -1169,6 +1558,7 @@ def first_numeric(
                     "z"
                 ]
             )
+
 
         for key in [
             "data",
@@ -1185,8 +1575,11 @@ def first_numeric(
                     ]
                 )
 
+
                 if found is not None:
+
                     return found
+
 
     if isinstance(
         value,
@@ -1202,8 +1595,11 @@ def first_numeric(
                 item
             )
 
+
             if found is not None:
+
                 return found
+
 
     return None
 
@@ -1213,7 +1609,9 @@ def numeric_list(
 ):
 
     if value is None:
+
         return []
+
 
     if isinstance(
         value,
@@ -1226,22 +1624,26 @@ def numeric_list(
         )
     ):
 
-        n = first_numeric(
+        number = first_numeric(
             value
         )
 
-        return (
-            []
-            if n is None
-            else [
-                n
-            ]
-        )
+
+        if number is None:
+
+            return []
+
+
+        return [
+            number
+        ]
+
 
     if isinstance(
         value,
         dict
     ):
+
 
         if "z" in value:
 
@@ -1250,6 +1652,7 @@ def numeric_list(
                     "z"
                 ]
             )
+
 
         for key in [
             "data",
@@ -1266,10 +1669,14 @@ def numeric_list(
                     ]
                 )
 
+
                 if values:
+
                     return values
 
+
         return []
+
 
     if isinstance(
         value,
@@ -1281,35 +1688,46 @@ def numeric_list(
 
         output = []
 
+
         for item in value:
 
-            n = (
-                first_numeric(
+
+            if (
+                isinstance(
+                    item,
+                    dict
+                )
+
+                and
+
+                "z" in item
+            ):
+
+                number = first_numeric(
                     item[
                         "z"
                     ]
                 )
-                if isinstance(
-                    item,
-                    dict
-                )
-                and
-                "z" in item
-                else
-                first_numeric(
+
+
+            else:
+
+                number = first_numeric(
                     item
                 )
-            )
 
-            if n is not None:
+
+            if number is not None:
 
                 output.append(
                     float(
-                        n
+                        number
                     )
                 )
 
+
         return output
+
 
     return []
 
@@ -1321,12 +1739,15 @@ def validate_elevation(
     if value is None:
 
         raise RuntimeError(
-            "GEBCO API returned no elevation value."
+            "GEBCO API returned "
+            "no elevation value."
         )
+
 
     value = float(
         value
     )
+
 
     if not math.isfinite(
         value
@@ -1337,23 +1758,32 @@ def validate_elevation(
             "elevation value."
         )
 
+
     if (
         value
         <
         -12000
+
         or
+
         value
         >
         9000
     ):
 
         raise RuntimeError(
-            f"GEBCO returned an implausible "
-            f"elevation: {value} m."
+            f"GEBCO returned an "
+            f"implausible elevation: "
+            f"{value} m."
         )
+
 
     return value
 
+
+# ============================================================
+# SINGLE GEBCO POINT
+# ============================================================
 
 @st.cache_data(
     ttl=86400,
@@ -1365,50 +1795,75 @@ def get_gebco_elevation(
 ):
 
     response = requests.get(
+
         GEBCO_API_URL,
+
         params={
+
             "lon":
                 f"{float(lon):.6f}",
+
             "lat":
                 f"{float(lat):.6f}",
+
             "mode":
                 "point"
         },
+
         headers={
+
             "Accept":
                 "application/json",
+
             "User-Agent":
                 "E-AWARE/1.4 academic prototype"
         },
+
         timeout=30
     )
 
+
     response.raise_for_status()
 
-    payload = response.json()
 
-    z = (
-        first_numeric(
+    payload = (
+        response.json()
+    )
+
+
+    if (
+        isinstance(
+            payload,
+            dict
+        )
+
+        and
+
+        "z" in payload
+    ):
+
+        z_value = first_numeric(
             payload[
                 "z"
             ]
         )
-        if isinstance(
-            payload,
-            dict
-        )
-        and
-        "z" in payload
-        else
-        first_numeric(
+
+
+    else:
+
+        z_value = first_numeric(
             payload
         )
-    )
+
 
     return validate_elevation(
-        z
+        z_value
     )
 
+
+# ============================================================
+# BATCH GEBCO
+# ============================================================
 
 @st.cache_data(
     ttl=86400,
@@ -1419,70 +1874,102 @@ def get_gebco_batch(
 ):
 
     points = tuple(
+
         (
             float(
                 lat
             ),
+
             float(
                 lon
             )
         )
+
         for lat, lon in points
     )
 
+
     if not points:
+
         return []
 
+
     params = {
+
         "lon":
             ",".join(
+
                 f"{lon:.6f}"
+
                 for lat, lon in points
             ),
+
         "lat":
             ",".join(
+
                 f"{lat:.6f}"
+
                 for lat, lon in points
             ),
+
         "mode":
             "point"
     }
 
+
     try:
 
         response = requests.get(
+
             GEBCO_API_URL,
+
             params=params,
+
             headers={
+
                 "Accept":
                     "application/json",
+
                 "User-Agent":
                     "E-AWARE/1.4 academic prototype"
             },
+
             timeout=40
         )
 
+
         response.raise_for_status()
 
-        payload = response.json()
 
-        values = (
-            numeric_list(
+        payload = (
+            response.json()
+        )
+
+
+        if (
+            isinstance(
+                payload,
+                dict
+            )
+
+            and
+
+            "z" in payload
+        ):
+
+            values = numeric_list(
                 payload[
                     "z"
                 ]
             )
-            if isinstance(
-                payload,
-                dict
-            )
-            and
-            "z" in payload
-            else
-            numeric_list(
+
+
+        else:
+
+            values = numeric_list(
                 payload
             )
-        )
+
 
         if len(
             values
@@ -1491,31 +1978,46 @@ def get_gebco_batch(
         ):
 
             return [
+
                 validate_elevation(
-                    v
+                    value
                 )
-                for v in values
+
+                for value in values
             ]
 
+
     except Exception:
+
         pass
 
+
     return [
+
         get_gebco_elevation(
             lat,
             lon
         )
+
         for lat, lon in points
     ]
 
+
+# ============================================================
+# ATTACH GEBCO BATHYMETRY
+# ============================================================
 
 def attach_gebco_bathymetry(
     dataframe
 ):
 
-    result = dataframe.copy()
+    result = (
+        dataframe.copy()
+    )
+
 
     unique_grid = (
+
         result[
             [
                 "lat",
@@ -1524,40 +2026,51 @@ def attach_gebco_bathymetry(
                 "lon_key"
             ]
         ]
+
         .drop_duplicates(
             subset=[
                 "lat_key",
                 "lon_key"
             ]
         )
+
         .sort_values(
             [
                 "lat",
                 "lon"
             ]
         )
+
         .reset_index(
             drop=True
         )
     )
 
+
     points = tuple(
+
         (
             float(
-                r.lat
+                row.lat
             ),
+
             float(
-                r.lon
+                row.lon
             )
         )
-        for r in unique_grid.itertuples(
+
+        for row in unique_grid.itertuples(
             index=False
         )
     )
 
-    elevations = get_gebco_batch(
-        points
+
+    elevations = (
+        get_gebco_batch(
+            points
+        )
     )
+
 
     if len(
         elevations
@@ -1570,59 +2083,83 @@ def attach_gebco_bathymetry(
             "number of values than requested."
         )
 
-    bathy = unique_grid[
-        [
-            "lat_key",
-            "lon_key"
-        ]
-    ].copy()
 
-    bathy[
+    bathymetry_grid = (
+
+        unique_grid[
+            [
+                "lat_key",
+                "lon_key"
+            ]
+        ]
+
+        .copy()
+    )
+
+
+    bathymetry_grid[
         "gebco_elevation_m"
     ] = np.asarray(
         elevations,
         dtype=float
     )
 
-    bathy[
+
+    bathymetry_grid[
         "is_ocean_gebco"
     ] = (
-        bathy[
+
+        bathymetry_grid[
             "gebco_elevation_m"
         ]
+
         <
         0
     )
 
-    bathy[
+
+    bathymetry_grid[
         "water_depth_m"
     ] = np.where(
-        bathy[
+
+        bathymetry_grid[
             "is_ocean_gebco"
         ],
+
         -
-        bathy[
+
+        bathymetry_grid[
             "gebco_elevation_m"
         ],
+
         np.nan
     )
 
+
     result = result.merge(
-        bathy,
+
+        bathymetry_grid,
+
         on=[
             "lat_key",
             "lon_key"
         ],
+
         how="left"
     )
 
+
     result = result[
+
         result[
             "is_ocean_gebco"
         ]
+
         ==
         True
+
     ].copy()
+
 
     if result.empty:
 
@@ -1631,121 +2168,529 @@ def attach_gebco_bathymetry(
             "removed all E-AWARE cells."
         )
 
+
     return result
 
 
 # ============================================================
-# PHYSICAL OXYCLINE VALIDATION
+# V1.4 STEP 3 — SEABED-CONSTRAINED OXYCLINE
 # ============================================================
 
-def validate_oxycline_against_bathymetry(
-    dataframe
+def attach_seabed_constrained_oxycline(
+    physics,
+    oxygen_profile
 ):
 
-    result = dataframe.copy()
+    result = (
+        physics.copy()
+    )
+
+
+    result[
+        "raw_oxycline_depth_m"
+    ] = np.nan
+
+
+    result[
+        "raw_oxycline_status"
+    ] = None
+
 
     result[
         "oxycline_depth_m"
     ] = np.nan
 
+
     result[
         "oxycline_validation_status"
-    ] = ""
+    ] = None
+
 
     result[
-        "oxycline_below_seabed_by_m"
+        "oxycline_source_distance_km"
     ] = np.nan
 
-    for index, row in result.iterrows():
 
-        raw_depth = row.get(
-            "raw_oxycline_depth_m",
-            np.nan
+    result[
+        "oxycline_source_lat"
+    ] = np.nan
+
+
+    result[
+        "oxycline_source_lon"
+    ] = np.nan
+
+
+    result[
+        "bgc_profile_max_depth_m"
+    ] = np.nan
+
+
+    result[
+        "bgc_profile_levels"
+    ] = np.nan
+
+
+    result[
+        "local_profile_max_depth_m"
+    ] = np.nan
+
+
+    result[
+        "local_profile_levels"
+    ] = np.nan
+
+
+    result[
+        "local_depth_gap_m"
+    ] = np.nan
+
+
+    for target_date in sorted(
+        result[
+            "date"
+        ]
+        .unique()
+    ):
+
+
+        target_mask = (
+
+            result[
+                "date"
+            ]
+
+            ==
+            target_date
         )
 
-        local_depth = row.get(
-            "water_depth_m",
-            np.nan
+
+        target_rows = (
+            result.loc[
+                target_mask
+            ]
         )
 
-        raw_status = str(
-            row.get(
-                "raw_oxycline_status",
-                ""
+
+        source_grid = (
+
+            oxygen_profile[
+
+                oxygen_profile[
+                    "date"
+                ]
+
+                ==
+                target_date
+
+            ]
+
+            [
+                [
+                    "lat",
+                    "lon",
+                    "lat_key",
+                    "lon_key"
+                ]
+            ]
+
+            .drop_duplicates(
+                subset=[
+                    "lat_key",
+                    "lon_key"
+                ]
+            )
+
+            .reset_index(
+                drop=True
             )
         )
 
-        if pd.isna(
-            raw_depth
+
+        if source_grid.empty:
+
+            continue
+
+
+        (
+            nearest_index,
+            nearest_distance
+        ) = nearest_source_indices(
+
+            target_rows,
+
+            source_grid
+        )
+
+
+        nearest_sources = (
+
+            source_grid
+
+            .iloc[
+                nearest_index
+            ]
+
+            .reset_index(
+                drop=True
+            )
+        )
+
+
+        target_indices = (
+            target_rows
+            .index
+            .to_list()
+        )
+
+
+        for row_position, target_index in enumerate(
+            target_indices
         ):
 
-            result.at[
-                index,
-                "oxycline_validation_status"
-            ] = (
+
+            target_row = (
+                result.loc[
+                    target_index
+                ]
+            )
+
+
+            source_row = (
+                nearest_sources
+                .iloc[
+                    row_position
+                ]
+            )
+
+
+            local_water_depth = float(
+
+                target_row[
+                    "water_depth_m"
+                ]
+            )
+
+
+            source_lat_key = float(
+
+                source_row[
+                    "lat_key"
+                ]
+            )
+
+
+            source_lon_key = float(
+
+                source_row[
+                    "lon_key"
+                ]
+            )
+
+
+            profile = oxygen_profile[
+
+                (
+                    oxygen_profile[
+                        "date"
+                    ]
+
+                    ==
+                    target_date
+                )
+
+                &
+
+                (
+                    oxygen_profile[
+                        "lat_key"
+                    ]
+
+                    ==
+                    source_lat_key
+                )
+
+                &
+
+                (
+                    oxygen_profile[
+                        "lon_key"
+                    ]
+
+                    ==
+                    source_lon_key
+                )
+
+            ].copy()
+
+
+            if profile.empty:
+
+                result.at[
+                    target_index,
+                    "oxycline_validation_status"
+                ] = (
+                    "No mapped BGC oxygen profile"
+                )
+
+                continue
+
+
+            profile = (
+                profile.sort_values(
+                    "depth"
+                )
+            )
+
+
+            (
+                raw_depth,
                 raw_status
-                if raw_status
-                else
-                "Oxycline not detected in BGC profile"
+            ) = estimate_oxycline_depth(
+                profile
             )
 
-            continue
 
-        if pd.isna(
-            local_depth
-        ):
+            # =================================================
+            # THIS IS THE MAIN STEP 3 CHANGE:
+            #
+            # Remove every BGC level deeper than
+            # the local GEBCO seabed BEFORE
+            # calculating the local oxycline.
+            # =================================================
 
-            result.at[
-                index,
-                "oxycline_validation_status"
-            ] = (
-                "Cannot validate oxycline because "
-                "local GEBCO depth is unavailable"
-            )
+            local_profile = profile[
 
-            continue
+                profile[
+                    "depth"
+                ]
 
-        raw_depth = float(
-            raw_depth
-        )
+                <=
+                local_water_depth
 
-        local_depth = float(
-            local_depth
-        )
+            ].copy()
 
-        if raw_depth <= local_depth:
 
             result.at[
-                index,
-                "oxycline_depth_m"
+                target_index,
+                "raw_oxycline_depth_m"
             ] = raw_depth
 
+
             result.at[
-                index,
-                "oxycline_validation_status"
-            ] = (
-                "Accepted — oxycline lies within "
-                "local GEBCO water column"
+                target_index,
+                "raw_oxycline_status"
+            ] = raw_status
+
+
+            result.at[
+                target_index,
+                "oxycline_source_distance_km"
+            ] = float(
+
+                nearest_distance[
+                    row_position
+                ]
             )
 
-        else:
 
             result.at[
-                index,
-                "oxycline_below_seabed_by_m"
-            ] = (
-                raw_depth
+                target_index,
+                "oxycline_source_lat"
+            ] = float(
+
+                source_row[
+                    "lat"
+                ]
+            )
+
+
+            result.at[
+                target_index,
+                "oxycline_source_lon"
+            ] = float(
+
+                source_row[
+                    "lon"
+                ]
+            )
+
+
+            result.at[
+                target_index,
+                "bgc_profile_max_depth_m"
+            ] = float(
+
+                profile[
+                    "depth"
+                ]
+                .max()
+            )
+
+
+            result.at[
+                target_index,
+                "bgc_profile_levels"
+            ] = int(
+
+                profile[
+                    "depth"
+                ]
+                .nunique()
+            )
+
+
+            if local_profile.empty:
+
+                result.at[
+                    target_index,
+                    "oxycline_validation_status"
+                ] = (
+                    "No BGC depth levels fall "
+                    "within the local GEBCO "
+                    "water column"
+                )
+
+                continue
+
+
+            local_max_depth = float(
+
+                local_profile[
+                    "depth"
+                ]
+                .max()
+            )
+
+
+            local_levels = int(
+
+                local_profile[
+                    "depth"
+                ]
+                .nunique()
+            )
+
+
+            local_gap = max(
+
+                0.0,
+
+                local_water_depth
                 -
-                local_depth
+                local_max_depth
             )
 
+
             result.at[
-                index,
-                "oxycline_validation_status"
-            ] = (
-                "Rejected — raw BGC oxycline falls "
-                "below local GEBCO seabed"
+                target_index,
+                "local_profile_max_depth_m"
+            ] = local_max_depth
+
+
+            result.at[
+                target_index,
+                "local_profile_levels"
+            ] = local_levels
+
+
+            result.at[
+                target_index,
+                "local_depth_gap_m"
+            ] = local_gap
+
+
+            (
+                local_depth,
+                local_status
+            ) = estimate_oxycline_depth(
+                local_profile
             )
+
+
+            if pd.notna(
+                local_depth
+            ):
+
+
+                result.at[
+                    target_index,
+                    "oxycline_depth_m"
+                ] = float(
+                    local_depth
+                )
+
+
+                result.at[
+                    target_index,
+                    "oxycline_validation_status"
+                ] = (
+                    "Accepted — 1 mL/L crossing "
+                    "detected within the local "
+                    "GEBCO water column"
+                )
+
+
+            else:
+
+
+                if (
+                    pd.notna(
+                        raw_depth
+                    )
+
+                    and
+
+                    float(
+                        raw_depth
+                    )
+                    >
+                    local_water_depth
+                ):
+
+
+                    result.at[
+                        target_index,
+                        "oxycline_validation_status"
+                    ] = (
+
+                        "1 mL/L threshold not reached "
+                        "in valid BGC levels within the "
+                        f"local {local_water_depth:.1f} m "
+                        "water column "
+                        "(deepest usable BGC level: "
+                        f"{local_max_depth:.1f} m); "
+                        "raw full-profile crossing occurs "
+                        f"at {float(raw_depth):.1f} m"
+                    )
+
+
+                else:
+
+
+                    result.at[
+                        target_index,
+                        "oxycline_validation_status"
+                    ] = (
+
+                        "1 mL/L threshold not reached "
+                        "in valid BGC levels within the "
+                        f"local {local_water_depth:.1f} m "
+                        "water column "
+                        "(deepest usable BGC level: "
+                        f"{local_max_depth:.1f} m)"
+                    )
+
+
+    if result[
+        "oxycline_validation_status"
+    ].isna().all():
+
+        raise RuntimeError(
+            "Oxycline profiles could not "
+            "be mapped to the E-AWARE grid."
+        )
+
 
     return result
 
@@ -1766,11 +2711,13 @@ def load_noaa_coastline_lines():
         COASTLINE_QUERY_MARGIN_DEG
     )
 
+
     east = (
         MAX_LON
         +
         COASTLINE_QUERY_MARGIN_DEG
     )
+
 
     south = (
         MIN_LAT
@@ -1778,167 +2725,225 @@ def load_noaa_coastline_lines():
         COASTLINE_QUERY_MARGIN_DEG
     )
 
+
     north = (
         MAX_LAT
         +
         COASTLINE_QUERY_MARGIN_DEG
     )
 
-    common = {
+
+    common_params = {
+
         "where":
             "1=1",
+
         "geometry":
             f"{west},{south},{east},{north}",
+
         "geometryType":
             "esriGeometryEnvelope",
+
         "inSR":
             "4326",
+
         "spatialRel":
             "esriSpatialRelIntersects",
+
         "outFields":
             "OBJECTID",
+
         "returnGeometry":
             "true",
+
         "outSR":
             "4326"
     }
 
+
     headers = {
+
         "Accept":
             "application/json",
+
         "User-Agent":
             "E-AWARE/1.4 academic prototype"
     }
 
+
     try:
 
         params = dict(
-            common
+            common_params
         )
+
 
         params[
             "f"
         ] = "geojson"
 
+
         response = requests.get(
+
             NOAA_COASTLINE_QUERY_URL,
+
             params=params,
+
             headers=headers,
+
             timeout=45
         )
 
+
         response.raise_for_status()
 
-        payload = response.json()
 
-        lines = []
+        payload = (
+            response.json()
+        )
+
+
+        line_strings = []
+
 
         for feature in payload.get(
             "features",
             []
         ):
 
-            g = feature.get(
+
+            geometry = feature.get(
                 "geometry"
             ) or {}
 
+
+            geometry_type = geometry.get(
+                "type"
+            )
+
+
+            coordinates = geometry.get(
+                "coordinates"
+            )
+
+
             if (
-                g.get(
-                    "type"
-                )
+                geometry_type
                 ==
                 "LineString"
+
                 and
-                g.get(
-                    "coordinates"
-                )
+
+                coordinates
             ):
 
-                lines.append(
-                    g[
-                        "coordinates"
-                    ]
+                line_strings.append(
+                    coordinates
                 )
+
 
             elif (
-                g.get(
-                    "type"
-                )
+                geometry_type
                 ==
                 "MultiLineString"
+
                 and
-                g.get(
-                    "coordinates"
-                )
+
+                coordinates
             ):
 
-                lines.extend(
-                    g[
-                        "coordinates"
-                    ]
+                line_strings.extend(
+                    coordinates
                 )
 
-        if lines:
-            return lines
+
+        if line_strings:
+
+            return line_strings
+
 
     except Exception:
+
         pass
 
+
     params = dict(
-        common
+        common_params
     )
+
 
     params[
         "f"
     ] = "json"
 
+
     response = requests.get(
+
         NOAA_COASTLINE_QUERY_URL,
+
         params=params,
+
         headers=headers,
+
         timeout=45
     )
 
+
     response.raise_for_status()
 
-    payload = response.json()
+
+    payload = (
+        response.json()
+    )
+
 
     if "error" in payload:
 
         raise RuntimeError(
-            f"NOAA coastline service error: "
+            "NOAA coastline service error: "
             f"{payload['error']}"
         )
 
-    lines = []
+
+    line_strings = []
+
 
     for feature in payload.get(
         "features",
         []
     ):
 
-        lines.extend(
-            (
-                feature.get(
-                    "geometry"
-                )
-                or
-                {}
-            ).get(
-                "paths",
-                []
-            )
+
+        geometry = feature.get(
+            "geometry"
+        ) or {}
+
+
+        paths = geometry.get(
+            "paths",
+            []
         )
 
-    if not lines:
+
+        line_strings.extend(
+            paths
+        )
+
+
+    if not line_strings:
 
         raise RuntimeError(
             "NOAA coastline query returned "
             "no coastline geometry."
         )
 
-    return lines
 
+    return line_strings
+
+
+# ============================================================
+# POINT TO COASTLINE SEGMENT
+# ============================================================
 
 def point_to_segment_distance_km(
     point_lat,
@@ -1949,11 +2954,15 @@ def point_to_segment_distance_km(
     lat2
 ):
 
-    km_lat = 111.32
+    km_per_degree_lat = 111.32
 
-    km_lon = (
+
+    km_per_degree_lon = (
+
         111.32
+
         *
+
         math.cos(
             math.radians(
                 point_lat
@@ -1961,37 +2970,54 @@ def point_to_segment_distance_km(
         )
     )
 
+
     x1 = (
+
         float(
             lon1
         )
+
         -
         point_lon
-    ) * km_lon
+
+    ) * km_per_degree_lon
+
 
     y1 = (
+
         float(
             lat1
         )
+
         -
         point_lat
-    ) * km_lat
+
+    ) * km_per_degree_lat
+
 
     x2 = (
+
         float(
             lon2
         )
+
         -
         point_lon
-    ) * km_lon
+
+    ) * km_per_degree_lon
+
 
     y2 = (
+
         float(
             lat2
         )
+
         -
         point_lat
-    ) * km_lat
+
+    ) * km_per_degree_lat
+
 
     dx = (
         x2
@@ -1999,40 +3025,50 @@ def point_to_segment_distance_km(
         x1
     )
 
+
     dy = (
         y2
         -
         y1
     )
 
-    length2 = (
+
+    segment_length_squared = (
+
         dx
         *
         dx
+
         +
+
         dy
         *
         dy
     )
 
-    if length2 == 0:
+
+    if segment_length_squared == 0:
 
         return math.hypot(
             x1,
             y1
         )
 
+
     t = -(
 
         x1
         *
         dx
+
         +
+
         y1
         *
         dy
 
-    ) / length2
+    ) / segment_length_squared
+
 
     t = max(
         0.0,
@@ -2042,6 +3078,7 @@ def point_to_segment_distance_km(
         )
     )
 
+
     closest_x = (
         x1
         +
@@ -2049,6 +3086,7 @@ def point_to_segment_distance_km(
         *
         dx
     )
+
 
     closest_y = (
         y1
@@ -2058,11 +3096,16 @@ def point_to_segment_distance_km(
         dy
     )
 
+
     return math.hypot(
         closest_x,
         closest_y
     )
 
+
+# ============================================================
+# DISTANCE TO NEAREST COAST
+# ============================================================
 
 def distance_to_nearest_coast_km(
     lat,
@@ -2070,13 +3113,19 @@ def distance_to_nearest_coast_km(
     coastline_lines
 ):
 
-    minimum = math.inf
+    minimum_distance = (
+        math.inf
+    )
+
 
     for line in coastline_lines:
 
+
         if (
             not line
+
             or
+
             len(
                 line
             )
@@ -2086,7 +3135,8 @@ def distance_to_nearest_coast_km(
 
             continue
 
-        for i in range(
+
+        for index in range(
             len(
                 line
             )
@@ -2094,23 +3144,30 @@ def distance_to_nearest_coast_km(
             1
         ):
 
-            p1 = line[
-                i
+
+            point1 = line[
+                index
             ]
 
-            p2 = line[
-                i + 1
+
+            point2 = line[
+                index
+                +
+                1
             ]
+
 
             if (
                 len(
-                    p1
+                    point1
                 )
                 <
                 2
+
                 or
+
                 len(
-                    p2
+                    point2
                 )
                 <
                 2
@@ -2118,42 +3175,58 @@ def distance_to_nearest_coast_km(
 
                 continue
 
-            d = point_to_segment_distance_km(
-                float(
-                    lat
-                ),
-                float(
-                    lon
-                ),
-                float(
-                    p1[
-                        0
-                    ]
-                ),
-                float(
-                    p1[
-                        1
-                    ]
-                ),
-                float(
-                    p2[
-                        0
-                    ]
-                ),
-                float(
-                    p2[
-                        1
-                    ]
+
+            distance = (
+                point_to_segment_distance_km(
+
+                    float(
+                        lat
+                    ),
+
+                    float(
+                        lon
+                    ),
+
+                    float(
+                        point1[
+                            0
+                        ]
+                    ),
+
+                    float(
+                        point1[
+                            1
+                        ]
+                    ),
+
+                    float(
+                        point2[
+                            0
+                        ]
+                    ),
+
+                    float(
+                        point2[
+                            1
+                        ]
+                    )
                 )
             )
 
-            minimum = min(
-                minimum,
-                d
-            )
+
+            if (
+                distance
+                <
+                minimum_distance
+            ):
+
+                minimum_distance = (
+                    distance
+                )
+
 
     if not math.isfinite(
-        minimum
+        minimum_distance
     ):
 
         raise RuntimeError(
@@ -2161,22 +3234,32 @@ def distance_to_nearest_coast_km(
             "were available."
         )
 
+
     return float(
-        minimum
+        minimum_distance
     )
 
+
+# ============================================================
+# ATTACH DISTANCE FROM COAST
+# ============================================================
 
 def attach_distance_to_coast(
     dataframe
 ):
 
-    result = dataframe.copy()
+    result = (
+        dataframe.copy()
+    )
+
 
     coastline_lines = (
         load_noaa_coastline_lines()
     )
 
+
     unique_grid = (
+
         result[
             [
                 "lat",
@@ -2185,70 +3268,102 @@ def attach_distance_to_coast(
                 "lon_key"
             ]
         ]
+
         .drop_duplicates(
             subset=[
                 "lat_key",
                 "lon_key"
             ]
         )
+
         .sort_values(
             [
                 "lat",
                 "lon"
             ]
         )
+
         .reset_index(
             drop=True
         )
     )
 
-    distances = [
-        distance_to_nearest_coast_km(
-            float(
-                r.lat
-            ),
-            float(
-                r.lon
-            ),
-            coastline_lines
-        )
-        for r in unique_grid.itertuples(
-            index=False
-        )
-    ]
 
-    coast = unique_grid[
-        [
-            "lat_key",
-            "lon_key"
+    distances = []
+
+
+    for row in unique_grid.itertuples(
+        index=False
+    ):
+
+
+        distance = (
+            distance_to_nearest_coast_km(
+
+                float(
+                    row.lat
+                ),
+
+                float(
+                    row.lon
+                ),
+
+                coastline_lines
+            )
+        )
+
+
+        distances.append(
+            distance
+        )
+
+
+    coast_grid = (
+
+        unique_grid[
+            [
+                "lat_key",
+                "lon_key"
+            ]
         ]
-    ].copy()
 
-    coast[
+        .copy()
+    )
+
+
+    coast_grid[
         "distance_coast_km"
     ] = np.asarray(
         distances,
         dtype=float
     )
 
-    coast[
+
+    coast_grid[
         "distance_coast_nm"
     ] = (
-        coast[
+
+        coast_grid[
             "distance_coast_km"
         ]
+
         /
         KM_PER_NAUTICAL_MILE
     )
 
+
     result = result.merge(
-        coast,
+
+        coast_grid,
+
         on=[
             "lat_key",
             "lon_key"
         ],
+
         how="left"
     )
+
 
     if result[
         "distance_coast_km"
@@ -2259,11 +3374,12 @@ def attach_distance_to_coast(
             "not be attached."
         )
 
+
     return result
 
 
 # ============================================================
-# HABITAT / HSI
+# HABITAT REFERENCE
 # ============================================================
 
 def habitat_reference(
@@ -2277,21 +3393,29 @@ def habitat_reference(
     ]:
 
         return {
+
             "season":
                 "Summer",
+
             "temp_min":
                 17.6,
+
             "temp_max":
                 23.7,
+
             "sal_min":
                 32.30,
+
             "sal_max":
                 35.14,
+
             "oxygen_min":
                 5.9,
+
             "oxygen_max":
                 8.7
         }
+
 
     if month in [
         6,
@@ -2300,39 +3424,58 @@ def habitat_reference(
     ]:
 
         return {
+
             "season":
                 "Winter",
+
             "temp_min":
                 14.5,
+
             "temp_max":
                 18.8,
+
             "sal_min":
                 34.81,
+
             "sal_max":
                 35.12,
+
             "oxygen_min":
                 5.2,
+
             "oxygen_max":
                 6.3
         }
 
+
     return {
+
         "season":
             "Transition (MVP)",
+
         "temp_min":
             14.5,
+
         "temp_max":
             23.7,
+
         "sal_min":
             32.30,
+
         "sal_max":
             35.14,
+
         "oxygen_min":
             5.2,
+
         "oxygen_max":
             8.7
     }
 
+
+# ============================================================
+# RANGE SCORE
+# ============================================================
 
 def range_score(
     values,
@@ -2346,10 +3489,12 @@ def range_score(
         dtype=float
     )
 
+
     score = np.ones_like(
         values,
         dtype=float
     )
+
 
     below = (
         values
@@ -2357,17 +3502,22 @@ def range_score(
         minimum
     )
 
+
     above = (
         values
         >
         maximum
     )
 
+
     score[
         below
     ] = (
+
         1
+
         -
+
         (
             minimum
             -
@@ -2375,15 +3525,20 @@ def range_score(
                 below
             ]
         )
+
         /
         shoulder
     )
 
+
     score[
         above
     ] = (
+
         1
+
         -
+
         (
             values[
                 above
@@ -2391,9 +3546,11 @@ def range_score(
             -
             maximum
         )
+
         /
         shoulder
     )
+
 
     return np.clip(
         score,
@@ -2402,168 +3559,252 @@ def range_score(
     )
 
 
+# ============================================================
+# HSI
+# ============================================================
+
 def calculate_hsi(
     dataframe,
     month
 ):
 
-    df = dataframe.copy()
-
-    ref = habitat_reference(
-        month
+    df = (
+        dataframe.copy()
     )
+
+
+    reference = (
+        habitat_reference(
+            month
+        )
+    )
+
 
     df[
         "temperature_score"
     ] = range_score(
+
         df[
             "temperature"
         ],
-        ref[
+
+        reference[
             "temp_min"
         ],
-        ref[
+
+        reference[
             "temp_max"
         ],
+
         2.0
     )
+
 
     df[
         "salinity_score"
     ] = range_score(
+
         df[
             "salinity"
         ],
-        ref[
+
+        reference[
             "sal_min"
         ],
-        ref[
+
+        reference[
             "sal_max"
         ],
+
         0.5
     )
+
 
     df[
         "oxygen_score"
     ] = range_score(
+
         df[
             "oxygen_ml_l"
         ],
-        ref[
+
+        reference[
             "oxygen_min"
         ],
-        ref[
+
+        reference[
             "oxygen_max"
         ],
+
         1.0
     )
+
+
+    # Oxycline remains outside the HSI.
 
     df[
         "hsi"
     ] = (
-        (
-            df[
-                "temperature_score"
-            ]
-            +
-            df[
-                "salinity_score"
-            ]
-            +
-            df[
-                "oxygen_score"
-            ]
+
+        df[
+            "temperature_score"
+        ]
+
+        +
+
+        df[
+            "salinity_score"
+        ]
+
+        +
+
+        df[
+            "oxygen_score"
+        ]
+
+    ) / 3.0
+
+
+    df[
+        "hsi"
+    ] = (
+        df[
+            "hsi"
+        ]
+        .clip(
+            0,
+            1
         )
-        /
-        3.0
-    ).clip(
-        0,
-        1
     )
+
 
     return df
 
+
+# ============================================================
+# HSI CLASS
+# ============================================================
 
 def hsi_class(
     value
 ):
 
     if value >= 0.80:
+
         return "Very High"
 
+
     if value >= 0.60:
+
         return "High"
 
+
     if value >= 0.30:
+
         return "Moderate"
+
 
     return "Low"
 
+
+# ============================================================
+# HABITAT CENTRE
+# ============================================================
 
 def habitat_centroid(
     dataframe
 ):
 
     if dataframe.empty:
+
         return None
 
+
     threshold = float(
+
         dataframe[
             "hsi"
-        ].quantile(
+        ]
+
+        .quantile(
             0.75
         )
     )
 
+
     best_area = dataframe[
+
         dataframe[
             "hsi"
         ]
+
         >=
         threshold
+
     ].copy()
+
 
     if best_area.empty:
 
         best_area = (
+
             dataframe
+
             .nlargest(
                 1,
                 "hsi"
             )
+
             .copy()
         )
 
+
     weights = np.clip(
+
         best_area[
             "hsi"
-        ].to_numpy(),
+        ]
+
+        .to_numpy(),
+
         0.01,
+
         None
     )
 
+
+    latitude = np.average(
+
+        best_area[
+            "lat"
+        ],
+
+        weights=weights
+    )
+
+
+    longitude = np.average(
+
+        best_area[
+            "lon"
+        ],
+
+        weights=weights
+    )
+
+
     return (
         float(
-            np.average(
-                best_area[
-                    "lat"
-                ],
-                weights=weights
-            )
+            latitude
         ),
         float(
-            np.average(
-                best_area[
-                    "lon"
-                ],
-                weights=weights
-            )
+            longitude
         )
     )
 
 
 # ============================================================
-# MOVEMENT
+# MOVEMENT FUNCTIONS
 # ============================================================
 
 def haversine(
@@ -2573,56 +3814,72 @@ def haversine(
     lon2
 ):
 
-    r = 6371.0
+    earth_radius = (
+        6371.0
+    )
+
 
     phi1 = math.radians(
         lat1
     )
 
+
     phi2 = math.radians(
         lat2
     )
 
-    dphi = math.radians(
+
+    delta_phi = math.radians(
         lat2
         -
         lat1
     )
 
-    dlambda = math.radians(
+
+    delta_lambda = math.radians(
         lon2
         -
         lon1
     )
 
+
     a = (
+
         math.sin(
-            dphi
+            delta_phi
             /
             2
         )
         ** 2
+
         +
+
         math.cos(
             phi1
         )
+
         *
+
         math.cos(
             phi2
         )
+
         *
+
         math.sin(
-            dlambda
+            delta_lambda
             /
             2
         )
         ** 2
     )
 
+
     return (
+
         2
         *
-        r
+        earth_radius
         *
         math.asin(
             math.sqrt(
@@ -2643,57 +3900,77 @@ def calculate_bearing(
         lat1
     )
 
+
     phi2 = math.radians(
         lat2
     )
 
-    dlambda = math.radians(
+
+    delta_lambda = math.radians(
         lon2
         -
         lon1
     )
 
+
     x = (
+
         math.sin(
-            dlambda
+            delta_lambda
         )
+
         *
+
         math.cos(
             phi2
         )
     )
+
 
     y = (
+
         math.cos(
             phi1
         )
+
         *
+
         math.sin(
             phi2
         )
+
         -
+
         math.sin(
             phi1
         )
+
         *
+
         math.cos(
             phi2
         )
+
         *
+
         math.cos(
-            dlambda
+            delta_lambda
         )
     )
 
+
     return (
+
         math.degrees(
             math.atan2(
                 x,
                 y
             )
         )
+
         +
         360
+
     ) % 360
 
 
@@ -2702,28 +3979,41 @@ def direction_name(
 ):
 
     directions = [
+
         "North ↑",
+
         "North-East ↗",
+
         "East →",
+
         "South-East ↘",
+
         "South ↓",
+
         "South-West ↙",
+
         "West ←",
+
         "North-West ↖"
     ]
 
-    return directions[
-        int(
-            (
-                bearing
-                +
-                22.5
-            )
-            //
-            45
+
+    index = int(
+
+        (
+            bearing
+            +
+            22.5
         )
-        %
-        8
+
+        //
+        45
+
+    ) % 8
+
+
+    return directions[
+        index
     ]
 
 
@@ -2735,18 +4025,26 @@ def movement_components(
 ):
 
     north_km = (
+
         lat2
         -
         lat1
+
     ) * 111.32
 
+
     east_km = (
+
         lon2
         -
         lon1
+
     ) * (
+
         111.32
+
         *
+
         math.cos(
             math.radians(
                 (
@@ -2759,6 +4057,7 @@ def movement_components(
             )
         )
     )
+
 
     return (
         north_km,
@@ -2776,37 +4075,48 @@ with st.sidebar:
         "E-AWARE Controls"
     )
 
+
     st.markdown(
         "### Study Area"
     )
+
 
     st.write(
         "Costanera Corridor"
     )
 
+
     st.write(
         "• Lobitos"
     )
+
 
     st.write(
         "• Siches"
     )
 
+
     st.write(
         "• Piedritas"
     )
 
+
     st.divider()
 
+
     selected_date = st.date_input(
+
         "Ocean Date",
+
         value=date.today()
     )
+
 
     st.caption(
         "E-AWARE requests the selected day "
         "plus the following 72 hours."
     )
+
 
     if st.button(
         "🔄 Refresh Data",
@@ -2817,8 +4127,11 @@ with st.sidebar:
 
 
 end_date = (
+
     selected_date
+
     +
+
     timedelta(
         days=3
     )
@@ -2832,157 +4145,228 @@ end_date = (
 try:
 
     with st.status(
-        "Loading E-AWARE V1.4 Step 2 environmental data...",
+
+        "Loading E-AWARE V1.4 Step 3 environmental data...",
+
         expanded=True
+
     ) as status:
 
-        username, password = get_credentials()
+
+        username, password = (
+            get_credentials()
+        )
+
 
         status.write(
             "🔐 Checking Copernicus credentials..."
         )
 
-        if not copernicusmarine.login(
-            username=username,
-            password=password,
-            check_credentials_valid=True
-        ):
+
+        credentials_valid = (
+            copernicusmarine.login(
+
+                username=username,
+
+                password=password,
+
+                check_credentials_valid=True
+            )
+        )
+
+
+        if not credentials_valid:
 
             raise RuntimeError(
-                "Copernicus rejected the supplied credentials."
+                "Copernicus rejected "
+                "the supplied credentials."
             )
+
 
         status.write(
             "🌡️ 1/7 Downloading temperature..."
         )
 
-        temperature_data = load_temperature(
-            selected_date,
-            end_date
+
+        temperature_data = (
+            load_temperature(
+
+                selected_date,
+
+                end_date
+            )
         )
+
 
         status.write(
             "🧂 2/7 Downloading salinity..."
         )
 
-        salinity_data = load_salinity(
-            selected_date,
-            end_date
+
+        salinity_data = (
+            load_salinity(
+
+                selected_date,
+
+                end_date
+            )
         )
+
 
         status.write(
             "🌊 3/7 Downloading SST anomaly..."
         )
 
-        anomaly_data = load_sst_anomaly(
-            selected_date,
-            end_date
+
+        anomaly_data = (
+            load_sst_anomaly(
+
+                selected_date,
+
+                end_date
+            )
         )
+
 
         status.write(
-            "🫧 4/7 Downloading full 3D oxygen profile..."
+            "🫧 4/7 Downloading full "
+            "3D oxygen profile..."
         )
 
-        oxygen_profile_data = load_oxygen_profile(
-            selected_date,
-            end_date
+
+        oxygen_profile_data = (
+            load_oxygen_profile(
+
+                selected_date,
+
+                end_date
+            )
         )
 
-        oxygen_data = surface_oxygen_from_profile(
-            oxygen_profile_data
+
+        oxygen_data = (
+            surface_oxygen_from_profile(
+                oxygen_profile_data
+            )
         )
 
-        oxycline_data = calculate_oxycline_table(
-            oxygen_profile_data
+
+        ocean = (
+            merge_physics_data(
+
+                temperature_data,
+
+                salinity_data,
+
+                anomaly_data
+            )
         )
 
-        ocean = merge_physics_data(
-            temperature_data,
-            salinity_data,
-            anomaly_data
+
+        ocean = (
+            attach_nearest_oxygen(
+
+                ocean,
+
+                oxygen_data
+            )
         )
 
-        ocean = attach_nearest_oxygen(
-            ocean,
-            oxygen_data
-        )
-
-        ocean = attach_nearest_oxycline(
-            ocean,
-            oxycline_data
-        )
 
         status.write(
             "🗻 5/7 Retrieving GEBCO_2026 bathymetry..."
         )
 
-        ocean = attach_gebco_bathymetry(
-            ocean
+
+        ocean = (
+            attach_gebco_bathymetry(
+                ocean
+            )
         )
+
 
         status.write(
-            "📏 6/7 Calculating distance from coast..."
+            "📏 6/7 Calculating distance "
+            "from coast..."
         )
 
-        ocean = attach_distance_to_coast(
-            ocean
+
+        ocean = (
+            attach_distance_to_coast(
+                ocean
+            )
         )
+
 
         status.write(
-            "🫧 7/7 Applying physical oxycline validation..."
+            "🫧 7/7 Calculating "
+            "seabed-constrained oxycline..."
         )
 
-        ocean = validate_oxycline_against_bathymetry(
-            ocean
+
+        ocean = (
+            attach_seabed_constrained_oxycline(
+
+                ocean,
+
+                oxygen_profile_data
+            )
         )
+
 
         accepted = int(
+
             ocean[
                 "oxycline_depth_m"
             ]
+
             .notna()
+
             .sum()
         )
 
-        rejected = int(
-            ocean[
-                "oxycline_validation_status"
-            ]
-            .str.startswith(
-                "Rejected",
-                na=False
-            )
-            .sum()
-        )
 
         status.write(
-            f"✅ Oxycline validation: "
-            f"{accepted} accepted, "
-            f"{rejected} rejected below seabed"
+
+            f"✅ Local oxycline calculation complete. "
+            f"{accepted} mapped cells currently contain "
+            f"a valid 1 mL/L crossing above the seabed."
         )
 
+
         status.update(
+
             label=
-                "✅ E-AWARE V1.4 Step 2 "
+                "✅ E-AWARE V1.4 Step 3 "
                 "environmental data loaded",
+
             state=
                 "complete",
+
             expanded=
                 False
         )
 
+
 except Exception as error:
 
     st.error(
-        "❌ E-AWARE V1.4 Step 2 could not "
-        "load all environmental data."
+        "❌ E-AWARE V1.4 Step 3 could "
+        "not load all environmental data."
     )
+
+
+    st.write(
+        "Technical error:"
+    )
+
 
     st.code(
         str(
             error
         )
     )
+
 
     st.stop()
 
@@ -2992,10 +4376,14 @@ except Exception as error:
 # ============================================================
 
 available_dates = sorted(
+
     ocean[
         "date"
-    ].unique()
+    ]
+
+    .unique()
 )
+
 
 if not available_dates:
 
@@ -3006,73 +4394,105 @@ if not available_dates:
     st.stop()
 
 
-current_date = (
-    selected_date
-    if selected_date in available_dates
-    else
-    available_dates[
-        0
-    ]
-)
+if selected_date in available_dates:
+
+    current_date = (
+        selected_date
+    )
+
+
+else:
+
+    current_date = (
+        available_dates[
+            0
+        ]
+    )
 
 
 current_data = ocean[
+
     ocean[
         "date"
     ]
+
     ==
     current_date
+
 ].copy()
 
 
-current_data = current_data.dropna(
-    subset=[
-        "oxygen_ml_l",
-        "water_depth_m",
-        "distance_coast_km",
-        "distance_coast_nm"
-    ]
-).copy()
+current_data = (
+
+    current_data
+
+    .dropna(
+        subset=[
+            "oxygen_ml_l",
+            "water_depth_m",
+            "distance_coast_km",
+            "distance_coast_nm"
+        ]
+    )
+
+    .copy()
+)
 
 
 if current_data.empty:
 
     st.error(
-        "No complete environmental grid cells "
-        "are available for the selected date."
+        "No complete environmental grid "
+        "cells are available for the selected date."
     )
 
     st.stop()
 
 
-current_data = calculate_hsi(
-    current_data,
-    current_date.month
+current_data = (
+    calculate_hsi(
+
+        current_data,
+
+        current_date.month
+    )
 )
 
 
 current_data[
     "class"
-] = current_data[
-    "hsi"
-].apply(
-    hsi_class
+] = (
+
+    current_data[
+        "hsi"
+    ]
+
+    .apply(
+        hsi_class
+    )
 )
 
 
 best = current_data.loc[
+
     current_data[
         "hsi"
-    ].idxmax()
+    ]
+
+    .idxmax()
 ]
 
 
-reference = habitat_reference(
-    current_date.month
+reference = (
+    habitat_reference(
+        current_date.month
+    )
 )
 
 
-coastline_lines = load_noaa_coastline_lines()
+coastline_lines = (
+    load_noaa_coastline_lines()
+)
 
 
 # ============================================================
@@ -3084,12 +4504,14 @@ st.subheader(
 )
 
 
-c1, c2, c3, c4 = st.columns(
-    4
+metric1, metric2, metric3, metric4 = (
+    st.columns(
+        4
+    )
 )
 
 
-c1.metric(
+metric1.metric(
     "Data Date",
     str(
         current_date
@@ -3097,58 +4519,67 @@ c1.metric(
 )
 
 
-c2.metric(
+metric2.metric(
     "Highest HSI",
     f"{best['hsi']:.2f}"
 )
 
 
-c3.metric(
+metric3.metric(
     "Highest-HSI SST",
     f"{best['temperature']:.2f} °C"
 )
 
 
-c4.metric(
+metric4.metric(
     "Dissolved Oxygen",
     f"{best['oxygen_ml_l']:.2f} mL/L"
 )
 
 
-c1, c2, c3, c4 = st.columns(
-    4
+context1, context2, context3, context4 = (
+    st.columns(
+        4
+    )
 )
 
 
-c1.metric(
+context1.metric(
     "Salinity",
     f"{best['salinity']:.2f} PSU"
 )
 
 
-c2.metric(
+context2.metric(
+
     "SST Anomaly",
+
     (
         f"{best['sst_anomaly']:+.2f} °C"
+
         if pd.notna(
             best[
                 "sst_anomaly"
             ]
         )
+
         else
+
         "Unavailable"
     )
 )
 
 
-c3.metric(
+context3.metric(
     "GEBCO Depth Estimate",
     f"{best['water_depth_m']:.0f} m"
 )
 
 
-c4.metric(
+context4.metric(
+
     "Distance from Coast",
+
     (
         f"{best['distance_coast_km']:.2f} km / "
         f"{best['distance_coast_nm']:.2f} nm"
@@ -3157,8 +4588,10 @@ c4.metric(
 
 
 st.caption(
-    "A raw BGC oxycline is now accepted only if "
-    "it lies within the local GEBCO water column."
+    "V1.4 Step 3 calculates the local oxycline "
+    "only from BGC depth levels that lie within "
+    "the local GEBCO water column. "
+    "Below-seabed BGC levels are excluded."
 )
 
 
@@ -3172,7 +4605,9 @@ st.subheader(
 
 
 map_mode = st.radio(
+
     "Map Layer",
+
     [
         "Habitat Suitability",
         "Temperature",
@@ -3182,11 +4617,14 @@ map_mode = st.radio(
         "Distance from Coast",
         "SST Anomaly"
     ],
+
     horizontal=True
 )
 
 
-map_data = current_data.copy()
+map_data = (
+    current_data.copy()
+)
 
 
 def scaled(
@@ -3197,358 +4635,479 @@ def scaled(
         float
     )
 
+
     spread = max(
+
         float(
             values.max()
             -
             values.min()
         ),
-        1e-9
+
+        0.000000001
     )
 
+
     return (
+
         values
         -
         values.min()
+
     ) / spread
 
 
-if map_mode == "Habitat Suitability":
+if map_mode == (
+    "Habitat Suitability"
+):
 
     map_data[
         "r"
     ] = (
-        1
-        -
-        map_data[
-            "hsi"
-        ]
-    ) * 220
+
+        (
+            1
+            -
+            map_data[
+                "hsi"
+            ]
+        )
+
+        *
+        220
+    )
+
 
     map_data[
         "g"
     ] = (
+
         map_data[
             "hsi"
         ]
+
         *
         210
     )
+
 
     map_data[
         "b"
     ] = 70
 
 
-elif map_mode == "Temperature":
+elif map_mode == (
+    "Temperature"
+):
 
-    n = scaled(
+    normalised = scaled(
         map_data[
             "temperature"
         ]
     )
 
+
     map_data[
         "r"
     ] = (
+
         80
+
         +
         170
         *
-        n
+        normalised
     )
+
 
     map_data[
         "g"
     ] = 80
 
+
     map_data[
         "b"
     ] = (
+
         220
+
         -
         150
         *
-        n
+        normalised
     )
 
 
-elif map_mode == "Salinity":
+elif map_mode == (
+    "Salinity"
+):
 
-    n = scaled(
+    normalised = scaled(
         map_data[
             "salinity"
         ]
     )
 
+
     map_data[
         "r"
     ] = 50
 
+
     map_data[
         "g"
     ] = (
+
         100
+
         +
         120
         *
-        n
+        normalised
     )
+
 
     map_data[
         "b"
     ] = 220
 
 
-elif map_mode == "Dissolved Oxygen":
+elif map_mode == (
+    "Dissolved Oxygen"
+):
 
-    n = scaled(
+    normalised = scaled(
         map_data[
             "oxygen_ml_l"
         ]
     )
 
+
     map_data[
         "r"
     ] = 80
 
+
     map_data[
         "g"
     ] = (
+
         130
+
         +
         100
         *
-        n
+        normalised
     )
+
 
     map_data[
         "b"
     ] = (
+
         230
+
         -
         80
         *
-        n
+        normalised
     )
 
 
-elif map_mode == "Bathymetry":
+elif map_mode == (
+    "Bathymetry"
+):
 
-    n = scaled(
+    normalised = scaled(
         map_data[
             "water_depth_m"
         ]
     )
 
+
     map_data[
         "r"
     ] = (
+
         70
+
         -
         50
         *
-        n
+        normalised
     )
+
 
     map_data[
         "g"
     ] = (
+
         180
+
         -
         110
         *
-        n
+        normalised
     )
+
 
     map_data[
         "b"
     ] = (
+
         210
+
         +
         40
         *
-        n
+        normalised
     )
 
 
-elif map_mode == "Distance from Coast":
+elif map_mode == (
+    "Distance from Coast"
+):
 
-    n = scaled(
+    normalised = scaled(
         map_data[
             "distance_coast_km"
         ]
     )
 
+
     map_data[
         "r"
     ] = (
+
         60
+
         +
         150
         *
-        n
+        normalised
     )
+
 
     map_data[
         "g"
     ] = (
+
         190
+
         -
         100
         *
-        n
+        normalised
     )
+
 
     map_data[
         "b"
     ] = (
+
         220
+
         -
         80
         *
-        n
+        normalised
     )
 
 
 else:
 
-    values = map_data[
-        "sst_anomaly"
-    ].fillna(
-        0
+    values = (
+
+        map_data[
+            "sst_anomaly"
+        ]
+
+        .fillna(
+            0
+        )
     )
 
+
     spread = max(
+
         abs(
             float(
                 values.min()
             )
         ),
+
         abs(
             float(
                 values.max()
             )
         ),
+
         0.1
     )
 
-    n = (
+
+    normalised = (
+
         (
             values
             /
             spread
         )
+
         +
         1
+
     ) / 2
+
 
     map_data[
         "r"
     ] = (
+
         40
+
         +
         200
         *
-        n
+        normalised
     )
+
 
     map_data[
         "g"
     ] = 100
 
+
     map_data[
         "b"
     ] = (
+
         240
+
         -
         190
         *
-        n
+        normalised
     )
 
 
+# ============================================================
+# MAP DISPLAY VALUES
+# ============================================================
+
 map_data[
     "hsi_display"
-] = map_data[
-    "hsi"
-].round(
-    2
+] = (
+    map_data[
+        "hsi"
+    ]
+    .round(
+        2
+    )
 )
 
 
 map_data[
     "temperature_display"
-] = map_data[
-    "temperature"
-].round(
-    2
+] = (
+    map_data[
+        "temperature"
+    ]
+    .round(
+        2
+    )
 )
 
 
 map_data[
     "salinity_display"
-] = map_data[
-    "salinity"
-].round(
-    2
+] = (
+    map_data[
+        "salinity"
+    ]
+    .round(
+        2
+    )
 )
 
 
 map_data[
     "oxygen_display"
-] = map_data[
-    "oxygen_ml_l"
-].round(
-    2
+] = (
+    map_data[
+        "oxygen_ml_l"
+    ]
+    .round(
+        2
+    )
 )
 
 
 map_data[
     "depth_display"
-] = map_data[
-    "water_depth_m"
-].round(
-    0
+] = (
+    map_data[
+        "water_depth_m"
+    ]
+    .round(
+        0
+    )
 )
 
 
 map_data[
     "coast_km_display"
-] = map_data[
-    "distance_coast_km"
-].round(
-    2
+] = (
+    map_data[
+        "distance_coast_km"
+    ]
+    .round(
+        2
+    )
 )
 
 
 map_data[
     "coast_nm_display"
-] = map_data[
-    "distance_coast_nm"
-].round(
-    2
+] = (
+    map_data[
+        "distance_coast_nm"
+    ]
+    .round(
+        2
+    )
 )
 
 
 map_data[
     "anomaly_display"
-] = map_data[
-    "sst_anomaly"
-].round(
-    2
+] = (
+    map_data[
+        "sst_anomaly"
+    ]
+    .round(
+        2
+    )
 )
 
 
+# ============================================================
+# MAP LAYERS
+# ============================================================
+
 ocean_layer = pdk.Layer(
+
     "ScatterplotLayer",
+
     data=
         map_data,
+
     get_position=
         [
             "lon",
             "lat"
         ],
+
     get_fill_color=
         [
             "r",
@@ -3556,26 +5115,34 @@ ocean_layer = pdk.Layer(
             "b",
             190
         ],
+
     get_radius=
         700,
+
     radius_min_pixels=
         6,
+
     radius_max_pixels=
         18,
+
     pickable=
         True
 )
 
 
 community_layer = pdk.Layer(
+
     "ScatterplotLayer",
+
     data=
         COMMUNITIES,
+
     get_position=
         [
             "lon",
             "lat"
         ],
+
     get_fill_color=
         [
             255,
@@ -3583,6 +5150,7 @@ community_layer = pdk.Layer(
             255,
             240
         ],
+
     get_line_color=
         [
             20,
@@ -3590,54 +5158,67 @@ community_layer = pdk.Layer(
             20,
             255
         ],
+
     stroked=
         True,
+
     line_width_min_pixels=
         2,
+
     get_radius=
         350,
+
     pickable=
         True
 )
 
 
 st.pydeck_chart(
+
     pdk.Deck(
+
         map_style=
             BASEMAP_URL,
+
         initial_view_state=
             pdk.ViewState(
+
                 latitude=
                     -4.49,
+
                 longitude=
                     -81.36,
+
                 zoom=
                     9.5,
+
                 pitch=
                     0
             ),
-        layers=
-            [
-                ocean_layer,
-                community_layer
-            ],
-        tooltip=
-            {
-                "html":
-                    "<b>{class} Habitat</b><br/>"
-                    "HSI: {hsi_display}<br/>"
-                    "SST: {temperature_display} °C<br/>"
-                    "Salinity: {salinity_display} PSU<br/>"
-                    "Oxygen: {oxygen_display} mL/L<br/>"
-                    "Water depth: {depth_display} m<br/>"
-                    "Distance from coast: "
-                    "{coast_km_display} km / "
-                    "{coast_nm_display} nm<br/>"
-                    "SST anomaly: {anomaly_display} °C"
-            }
+
+        layers=[
+            ocean_layer,
+            community_layer
+        ],
+
+        tooltip={
+
+            "html":
+
+                "<b>{class} Habitat</b><br/>"
+                "HSI: {hsi_display}<br/>"
+                "SST: {temperature_display} °C<br/>"
+                "Salinity: {salinity_display} PSU<br/>"
+                "Oxygen: {oxygen_display} mL/L<br/>"
+                "Water depth: {depth_display} m<br/>"
+                "Distance from coast: "
+                "{coast_km_display} km / "
+                "{coast_nm_display} nm<br/>"
+                "SST anomaly: {anomaly_display} °C"
+        }
     ),
-    use_container_width=
-        True
+
+    use_container_width=True
 )
 
 
@@ -3650,24 +5231,26 @@ st.subheader(
 )
 
 
-z1, z2, z3, z4, z5 = st.columns(
-    5
+zone1, zone2, zone3, zone4, zone5 = (
+    st.columns(
+        5
+    )
 )
 
 
-z1.metric(
+zone1.metric(
     "Latitude",
     f"{best['lat']:.4f}"
 )
 
 
-z2.metric(
+zone2.metric(
     "Longitude",
     f"{best['lon']:.4f}"
 )
 
 
-z3.metric(
+zone3.metric(
     "Suitability",
     hsi_class(
         best[
@@ -3677,14 +5260,16 @@ z3.metric(
 )
 
 
-z4.metric(
+zone4.metric(
     "GEBCO Depth",
     f"{best['water_depth_m']:.0f} m"
 )
 
 
-z5.metric(
+zone5.metric(
+
     "Coast Distance",
+
     (
         f"{best['distance_coast_km']:.2f} km / "
         f"{best['distance_coast_nm']:.2f} nm"
@@ -3693,11 +5278,11 @@ z5.metric(
 
 
 # ============================================================
-# OXYCLINE PHYSICAL VALIDATION
+# V1.4 STEP 3 OXYCLINE VALIDATION
 # ============================================================
 
 st.subheader(
-    "🫧 V1.4 Step 2 — Oxycline Physical Validation"
+    "🫧 V1.4 Step 3 — Seabed-Constrained Oxycline"
 )
 
 
@@ -3707,8 +5292,26 @@ raw_oxycline = best.get(
 )
 
 
-validated_oxycline = best.get(
+local_oxycline = best.get(
     "oxycline_depth_m",
+    np.nan
+)
+
+
+local_max_model_depth = best.get(
+    "local_profile_max_depth_m",
+    np.nan
+)
+
+
+local_levels = best.get(
+    "local_profile_levels",
+    np.nan
+)
+
+
+local_gap = best.get(
+    "local_depth_gap_m",
     np.nan
 )
 
@@ -3722,92 +5325,131 @@ validation_status = str(
 
 
 raw_text = (
+
     f"{raw_oxycline:.1f} m"
+
     if pd.notna(
         raw_oxycline
     )
+
     else
+
     "Not detected"
 )
 
 
-validated_text = (
-    f"{validated_oxycline:.1f} m"
+local_text = (
+
+    f"{local_oxycline:.1f} m"
+
     if pd.notna(
-        validated_oxycline
+        local_oxycline
     )
+
     else
-    "Rejected / unavailable"
+
+    "Not reached"
 )
 
 
-o1, o2, o3, o4 = st.columns(
-    4
+oxycline1, oxycline2, oxycline3, oxycline4 = (
+    st.columns(
+        4
+    )
 )
 
 
-o1.metric(
-    "Raw Copernicus Oxycline",
+oxycline1.metric(
+    "Raw Full-Profile Oxycline",
     raw_text
 )
 
 
-o2.metric(
+oxycline2.metric(
     "Local GEBCO Water Depth",
     f"{best['water_depth_m']:.1f} m"
 )
 
 
-o3.metric(
-    "Validated Oxycline",
-    validated_text
+oxycline3.metric(
+    "Local Oxycline",
+    local_text
 )
 
 
-o4.metric(
+oxycline4.metric(
     "HSI Weight",
     "Not included"
 )
 
 
-if validation_status.startswith(
-    "Accepted"
+detail1, detail2, detail3 = (
+    st.columns(
+        3
+    )
+)
+
+
+detail1.metric(
+
+    "Deepest BGC Level Used",
+
+    (
+        f"{local_max_model_depth:.1f} m"
+
+        if pd.notna(
+            local_max_model_depth
+        )
+
+        else
+
+        "Unavailable"
+    )
+)
+
+
+detail2.metric(
+
+    "BGC Levels Inside Water Column",
+
+    (
+        f"{int(local_levels)}"
+
+        if pd.notna(
+            local_levels
+        )
+
+        else
+
+        "Unavailable"
+    )
+)
+
+
+detail3.metric(
+
+    "Unsampled Gap to Seabed",
+
+    (
+        f"{local_gap:.1f} m"
+
+        if pd.notna(
+            local_gap
+        )
+
+        else
+
+        "Unavailable"
+    )
+)
+
+
+if pd.notna(
+    local_oxycline
 ):
 
     st.success(
         validation_status
-    )
-
-
-elif validation_status.startswith(
-    "Rejected"
-):
-
-    below_by = best.get(
-        "oxycline_below_seabed_by_m",
-        np.nan
-    )
-
-    extra = (
-        f" The raw estimate is "
-        f"{below_by:.1f} m deeper than the local seabed."
-        if pd.notna(
-            below_by
-        )
-        else
-        ""
-    )
-
-    st.warning(
-        validation_status
-        +
-        "."
-        +
-        extra
-        +
-        " E-AWARE therefore keeps the raw value only "
-        "for transparency and does not treat it as a "
-        "valid local oxycline."
     )
 
 
@@ -3819,12 +5461,48 @@ else:
 
 
 st.caption(
-    "Physical rule: accept the mapped oxycline only when "
-    "raw oxycline depth ≤ local GEBCO water depth."
+    "Step 3 does not use any BGC depth level deeper "
+    "than the local GEBCO seabed. If 1 mL/L is not "
+    "reached among the valid local BGC levels, "
+    "E-AWARE reports it as not reached."
 )
 
 
-validation_table = current_data[
+if (
+    pd.notna(
+        raw_oxycline
+    )
+
+    and
+
+    float(
+        raw_oxycline
+    )
+    >
+    float(
+        best[
+            "water_depth_m"
+        ]
+    )
+):
+
+    st.warning(
+
+        f"For transparency, the full coarse BGC "
+        f"profile still produces a raw crossing at "
+        f"{float(raw_oxycline):.1f} m, but the local "
+        f"water depth is only "
+        f"{float(best['water_depth_m']):.1f} m. "
+        f"The below-seabed part of the BGC profile "
+        f"is excluded from the local oxycline calculation."
+    )
+
+
+# ============================================================
+# OXYCLINE VALIDATION TABLE
+# ============================================================
+
+oxycline_validation = current_data[
     [
         "lat",
         "lon",
@@ -3833,86 +5511,133 @@ validation_table = current_data[
         "oxygen_ml_l",
         "raw_oxycline_depth_m",
         "oxycline_depth_m",
-        "oxycline_below_seabed_by_m",
+        "local_profile_max_depth_m",
+        "local_profile_levels",
+        "local_depth_gap_m",
         "oxycline_source_distance_km",
-        "oxycline_profile_max_depth_m",
-        "oxycline_profile_levels",
+        "oxycline_source_lat",
+        "oxycline_source_lon",
         "oxycline_validation_status"
     ]
 ].copy()
 
 
-for col, decimals in {
+for column, decimals in {
+
     "lat":
         4,
+
     "lon":
         4,
+
     "hsi":
         2,
+
     "water_depth_m":
         1,
+
     "oxygen_ml_l":
         2,
+
     "raw_oxycline_depth_m":
         1,
+
     "oxycline_depth_m":
         1,
-    "oxycline_below_seabed_by_m":
+
+    "local_profile_max_depth_m":
         1,
+
+    "local_profile_levels":
+        0,
+
+    "local_depth_gap_m":
+        1,
+
     "oxycline_source_distance_km":
         2,
-    "oxycline_profile_max_depth_m":
-        0,
-    "oxycline_profile_levels":
-        0
+
+    "oxycline_source_lat":
+        4,
+
+    "oxycline_source_lon":
+        4
+
 }.items():
 
-    validation_table[
-        col
-    ] = validation_table[
-        col
-    ].round(
-        decimals
+
+    oxycline_validation[
+        column
+    ] = (
+
+        oxycline_validation[
+            column
+        ]
+
+        .round(
+            decimals
+        )
     )
 
 
-validation_table = validation_table.rename(
-    columns=
-        {
+oxycline_validation = (
+    oxycline_validation.rename(
+
+        columns={
+
             "lat":
                 "Latitude",
+
             "lon":
                 "Longitude",
+
             "hsi":
                 "HSI",
+
             "water_depth_m":
                 "Local GEBCO Depth (m)",
+
             "oxygen_ml_l":
                 "Surface O₂ (mL/L)",
+
             "raw_oxycline_depth_m":
-                "Raw BGC Oxycline (m)",
+                "Raw Full-Profile Oxycline (m)",
+
             "oxycline_depth_m":
-                "Validated Oxycline (m)",
-            "oxycline_below_seabed_by_m":
-                "Below Seabed By (m)",
+                "Local Oxycline (m)",
+
+            "local_profile_max_depth_m":
+                "Deepest BGC Level Used (m)",
+
+            "local_profile_levels":
+                "Local BGC Levels",
+
+            "local_depth_gap_m":
+                "Unsampled Gap to Seabed (m)",
+
             "oxycline_source_distance_km":
                 "BGC Source Distance (km)",
-            "oxycline_profile_max_depth_m":
-                "BGC Profile Max Depth (m)",
-            "oxycline_profile_levels":
-                "BGC Profile Levels",
+
+            "oxycline_source_lat":
+                "BGC Source Latitude",
+
+            "oxycline_source_lon":
+                "BGC Source Longitude",
+
             "oxycline_validation_status":
-                "Validation Status"
+                "Local Oxycline Status"
         }
+    )
 )
 
 
 st.dataframe(
-    validation_table,
-    use_container_width=
-        True,
-    hide_index=
-        True
+
+    oxycline_validation,
+
+    use_container_width=True,
+
+    hide_index=True
 )
 
 
@@ -3925,13 +5650,17 @@ st.subheader(
 )
 
 
-r1, r2, r3, r4 = st.columns(
-    4
+reference1, reference2, reference3, reference4 = (
+    st.columns(
+        4
+    )
 )
 
 
-r1.metric(
+reference1.metric(
+
     "Reference Temperature",
+
     (
         f"{reference['temp_min']} – "
         f"{reference['temp_max']} °C"
@@ -3939,8 +5668,10 @@ r1.metric(
 )
 
 
-r2.metric(
+reference2.metric(
+
     "Reference Salinity",
+
     (
         f"{reference['sal_min']} – "
         f"{reference['sal_max']} PSU"
@@ -3948,8 +5679,10 @@ r2.metric(
 )
 
 
-r3.metric(
+reference3.metric(
+
     "Reference Oxygen",
+
     (
         f"{reference['oxygen_min']} – "
         f"{reference['oxygen_max']} mL/L"
@@ -3957,7 +5690,7 @@ r3.metric(
 )
 
 
-r4.metric(
+reference4.metric(
     "Season",
     reference[
         "season"
@@ -3966,15 +5699,16 @@ r4.metric(
 
 
 st.warning(
-    "V1.4 Step 2 still calculates HSI only from temperature, "
-    "salinity and surface dissolved oxygen. Bathymetry, distance "
-    "from coast and validated oxycline remain additional predictors "
-    "and are not assigned fixed HSI weights."
+    "V1.4 Step 3 still calculates HSI only from "
+    "temperature, salinity and surface dissolved oxygen. "
+    "Bathymetry, distance from coast and local oxycline "
+    "depth remain additional predictors without fixed "
+    "HSI weights."
 )
 
 
 # ============================================================
-# FORECAST
+# FORECAST PROCESSING
 # ============================================================
 
 forecast_centres = []
@@ -3984,84 +5718,128 @@ forecast_results = []
 
 for forecast_date in available_dates:
 
-    frame = ocean[
+
+    forecast_frame = ocean[
+
         ocean[
             "date"
         ]
+
         ==
         forecast_date
+
     ].copy()
 
-    frame = frame.dropna(
-        subset=
-            [
+
+    forecast_frame = (
+
+        forecast_frame
+
+        .dropna(
+            subset=[
                 "oxygen_ml_l",
                 "water_depth_m",
                 "distance_coast_km",
                 "distance_coast_nm"
             ]
-    ).copy()
+        )
 
-    if frame.empty:
+        .copy()
+    )
+
+
+    if forecast_frame.empty:
+
         continue
 
-    frame = calculate_hsi(
-        frame,
-        forecast_date.month
+
+    forecast_frame = (
+        calculate_hsi(
+
+            forecast_frame,
+
+            forecast_date.month
+        )
     )
 
-    centre = habitat_centroid(
-        frame
+
+    centre = (
+        habitat_centroid(
+            forecast_frame
+        )
     )
+
 
     centre_coast_km = None
 
     centre_coast_nm = None
 
+
     if centre is not None:
 
-        centre_coast_km = distance_to_nearest_coast_km(
-            centre[
-                0
-            ],
-            centre[
-                1
-            ],
-            coastline_lines
+
+        centre_coast_km = (
+            distance_to_nearest_coast_km(
+
+                centre[
+                    0
+                ],
+
+                centre[
+                    1
+                ],
+
+                coastline_lines
+            )
         )
 
+
         centre_coast_nm = (
+
             centre_coast_km
+
             /
             KM_PER_NAUTICAL_MILE
         )
 
+
         forecast_centres.append(
+
             {
                 "date":
                     forecast_date,
+
                 "lat":
                     centre[
                         0
                     ],
+
                 "lon":
                     centre[
                         1
                     ],
+
                 "distance_coast_km":
                     centre_coast_km,
+
                 "distance_coast_nm":
                     centre_coast_nm
             }
         )
 
-    best_f = frame.loc[
-        frame[
+
+    best_forecast = forecast_frame.loc[
+
+        forecast_frame[
             "hsi"
-        ].idxmax()
+        ]
+
+        .idxmax()
     ]
 
+
     forecast_results.append(
+
         {
             "Date":
                 forecast_date,
@@ -4069,7 +5847,7 @@ for forecast_date in available_dates:
             "Highest HSI":
                 round(
                     float(
-                        best_f[
+                        best_forecast[
                             "hsi"
                         ]
                     ),
@@ -4079,7 +5857,7 @@ for forecast_date in available_dates:
             "Temperature °C":
                 round(
                     float(
-                        best_f[
+                        best_forecast[
                             "temperature"
                         ]
                     ),
@@ -4089,7 +5867,7 @@ for forecast_date in available_dates:
             "Salinity PSU":
                 round(
                     float(
-                        best_f[
+                        best_forecast[
                             "salinity"
                         ]
                     ),
@@ -4099,7 +5877,7 @@ for forecast_date in available_dates:
             "Oxygen mL/L":
                 round(
                     float(
-                        best_f[
+                        best_forecast[
                             "oxygen_ml_l"
                         ]
                     ),
@@ -4109,7 +5887,7 @@ for forecast_date in available_dates:
             "Water Depth m":
                 round(
                     float(
-                        best_f[
+                        best_forecast[
                             "water_depth_m"
                         ]
                     ),
@@ -4119,7 +5897,7 @@ for forecast_date in available_dates:
             "Distance Coast km":
                 round(
                     float(
-                        best_f[
+                        best_forecast[
                             "distance_coast_km"
                         ]
                     ),
@@ -4129,7 +5907,7 @@ for forecast_date in available_dates:
             "Distance Coast nm":
                 round(
                     float(
-                        best_f[
+                        best_forecast[
                             "distance_coast_nm"
                         ]
                     ),
@@ -4138,113 +5916,143 @@ for forecast_date in available_dates:
 
             "Raw Oxycline m":
                 (
+
                     round(
                         float(
-                            best_f[
+                            best_forecast[
                                 "raw_oxycline_depth_m"
                             ]
                         ),
                         1
                     )
+
                     if pd.notna(
-                        best_f[
+                        best_forecast[
                             "raw_oxycline_depth_m"
                         ]
                     )
+
                     else
+
                     None
                 ),
 
-            "Validated Oxycline m":
+            "Local Oxycline m":
                 (
+
                     round(
                         float(
-                            best_f[
+                            best_forecast[
                                 "oxycline_depth_m"
                             ]
                         ),
                         1
                     )
+
                     if pd.notna(
-                        best_f[
+                        best_forecast[
                             "oxycline_depth_m"
                         ]
                     )
+
                     else
+
                     None
                 ),
 
             "Oxycline Status":
                 str(
-                    best_f[
+                    best_forecast[
                         "oxycline_validation_status"
                     ]
                 ),
 
             "SST Anomaly °C":
                 (
+
                     round(
                         float(
-                            best_f[
+                            best_forecast[
                                 "sst_anomaly"
                             ]
                         ),
                         2
                     )
+
                     if pd.notna(
-                        best_f[
+                        best_forecast[
                             "sst_anomaly"
                         ]
                     )
+
                     else
+
                     None
                 ),
 
             "Habitat Centre Lat":
                 (
+
                     round(
                         centre[
                             0
                         ],
                         4
                     )
+
                     if centre
+
                     else
+
                     None
                 ),
 
             "Habitat Centre Lon":
                 (
+
                     round(
                         centre[
                             1
                         ],
                         4
                     )
+
                     if centre
+
                     else
+
                     None
                 ),
 
             "Centre Coast km":
                 (
+
                     round(
                         centre_coast_km,
                         2
                     )
-                    if centre_coast_km is not None
+
+                    if centre_coast_km
+                    is not None
+
                     else
+
                     None
                 ),
 
             "Centre Coast nm":
                 (
+
                     round(
                         centre_coast_nm,
                         2
                     )
-                    if centre_coast_nm is not None
+
+                    if centre_coast_nm
+                    is not None
+
                     else
+
                     None
                 )
         }
@@ -4260,21 +6068,50 @@ st.subheader(
 )
 
 
-direction_text = "Unavailable"
-distance_text = "—"
-bearing_text = "—"
-period_text = "Insufficient forecast data"
+direction_text = (
+    "Unavailable"
+)
 
-start_point_text = "—"
-end_point_text = "—"
+distance_text = (
+    "—"
+)
 
-north_south_text = "—"
-east_west_text = "—"
+bearing_text = (
+    "—"
+)
 
-start_coast_text = "—"
-end_coast_text = "—"
+period_text = (
+    "Insufficient forecast data"
+)
 
-coastal_interpretation = "Unavailable"
+start_point_text = (
+    "—"
+)
+
+end_point_text = (
+    "—"
+)
+
+north_south_text = (
+    "—"
+)
+
+east_west_text = (
+    "—"
+)
+
+start_coast_text = (
+    "—"
+)
+
+end_coast_text = (
+    "—"
+)
+
+coastal_interpretation = (
+    "Unavailable"
+)
+
 
 start = None
 
@@ -4285,131 +6122,200 @@ if len(
     forecast_centres
 ) >= 2:
 
-    start = forecast_centres[
-        0
-    ]
 
-    end = forecast_centres[
-        -1
-    ]
+    start = (
+        forecast_centres[
+            0
+        ]
+    )
+
+
+    end = (
+        forecast_centres[
+            -1
+        ]
+    )
+
 
     distance = haversine(
+
         start[
             "lat"
         ],
+
         start[
             "lon"
         ],
+
         end[
             "lat"
         ],
+
         end[
             "lon"
         ]
     )
+
 
     bearing = calculate_bearing(
+
         start[
             "lat"
         ],
+
         start[
             "lon"
         ],
+
         end[
             "lat"
         ],
+
         end[
             "lon"
         ]
     )
 
-    north_km, east_km = movement_components(
-        start[
-            "lat"
-        ],
-        start[
-            "lon"
-        ],
-        end[
-            "lat"
-        ],
-        end[
-            "lon"
-        ]
+
+    north_km, east_km = (
+        movement_components(
+
+            start[
+                "lat"
+            ],
+
+            start[
+                "lon"
+            ],
+
+            end[
+                "lat"
+            ],
+
+            end[
+                "lon"
+            ]
+        )
     )
+
 
     distance_text = (
         f"{distance:.2f} km"
     )
 
+
     bearing_text = (
         f"{bearing:.1f}°"
     )
 
+
     period_text = (
+
         f"{start['date'].strftime('%d %b %Y')} "
         f"→ "
         f"{end['date'].strftime('%d %b %Y')}"
     )
 
+
     start_point_text = (
+
         f"{start['lat']:.4f}, "
         f"{start['lon']:.4f}"
     )
 
+
     end_point_text = (
+
         f"{end['lat']:.4f}, "
         f"{end['lon']:.4f}"
     )
 
-    north_south_text = (
-        f"{abs(north_km):.2f} km North"
-        if north_km > 0
-        else
-        f"{abs(north_km):.2f} km South"
-        if north_km < 0
-        else
-        "0.00 km"
-    )
 
-    east_west_text = (
-        f"{abs(east_km):.2f} km East"
-        if east_km > 0
-        else
-        f"{abs(east_km):.2f} km West"
-        if east_km < 0
-        else
-        "0.00 km"
-    )
+    if north_km > 0:
 
-    direction_text = (
-        direction_name(
-            bearing
+        north_south_text = (
+            f"{abs(north_km):.2f} km North"
         )
-        if distance >= 2.0
-        else
-        "No clear shift"
-    )
+
+
+    elif north_km < 0:
+
+        north_south_text = (
+            f"{abs(north_km):.2f} km South"
+        )
+
+
+    else:
+
+        north_south_text = (
+            "0.00 km"
+        )
+
+
+    if east_km > 0:
+
+        east_west_text = (
+            f"{abs(east_km):.2f} km East"
+        )
+
+
+    elif east_km < 0:
+
+        east_west_text = (
+            f"{abs(east_km):.2f} km West"
+        )
+
+
+    else:
+
+        east_west_text = (
+            "0.00 km"
+        )
+
+
+    if distance >= 2.0:
+
+        direction_text = (
+            direction_name(
+                bearing
+            )
+        )
+
+
+    else:
+
+        direction_text = (
+            "No clear shift"
+        )
+
 
     start_coast_text = (
+
         f"{start['distance_coast_km']:.2f} km / "
         f"{start['distance_coast_nm']:.2f} nm"
     )
 
+
     end_coast_text = (
+
         f"{end['distance_coast_km']:.2f} km / "
         f"{end['distance_coast_nm']:.2f} nm"
     )
 
+
     coast_delta = (
+
         end[
             "distance_coast_km"
         ]
+
         -
+
         start[
             "distance_coast_km"
         ]
     )
+
 
     if abs(
         coast_delta
@@ -4419,39 +6325,49 @@ if len(
             "No clear coastal/offshore change"
         )
 
+
     elif coast_delta < 0:
 
         coastal_interpretation = (
+
             f"Closer to coast by "
             f"{abs(coast_delta):.2f} km"
         )
 
+
     else:
 
         coastal_interpretation = (
+
             f"Farther offshore by "
             f"{abs(coast_delta):.2f} km"
         )
 
 
-s1, s2, s3 = st.columns(
-    3
+# ============================================================
+# SHIFT METRICS
+# ============================================================
+
+shift1, shift2, shift3 = (
+    st.columns(
+        3
+    )
 )
 
 
-s1.metric(
+shift1.metric(
     "Predicted Direction",
     direction_text
 )
 
 
-s2.metric(
+shift2.metric(
     "Total Shift",
     distance_text
 )
 
 
-s3.metric(
+shift3.metric(
     "Bearing",
     bearing_text
 )
@@ -4463,58 +6379,64 @@ st.markdown(
 )
 
 
-m1, m2 = st.columns(
-    2
+movement1, movement2 = (
+    st.columns(
+        2
+    )
 )
 
 
-m1.metric(
+movement1.metric(
     "North / South",
     north_south_text
 )
 
 
-m2.metric(
+movement2.metric(
     "East / West",
     east_west_text
 )
 
 
-p1, p2 = st.columns(
-    2
+position1, position2 = (
+    st.columns(
+        2
+    )
 )
 
 
-p1.metric(
+position1.metric(
     "Current / Start Position",
     start_point_text
 )
 
 
-p2.metric(
+position2.metric(
     "+72 h Forecast Position",
     end_point_text
 )
 
 
-co1, co2, co3 = st.columns(
-    3
+coast1, coast2, coast3 = (
+    st.columns(
+        3
+    )
 )
 
 
-co1.metric(
+coast1.metric(
     "Start Distance from Coast",
     start_coast_text
 )
 
 
-co2.metric(
+coast2.metric(
     "+72 h Distance from Coast",
     end_coast_text
 )
 
 
-co3.metric(
+coast3.metric(
     "Interpretation",
     coastal_interpretation
 )
@@ -4531,11 +6453,15 @@ st.markdown(
 
 if (
     start is not None
+
     and
+
     end is not None
 ):
 
+
     shift_path_data = [
+
         {
             "path":
                 [
@@ -4547,6 +6473,7 @@ if (
                             "lat"
                         ]
                     ],
+
                     [
                         end[
                             "lon"
@@ -4556,6 +6483,7 @@ if (
                         ]
                     ]
                 ],
+
             "name":
                 (
                     f"{direction_text} • "
@@ -4564,15 +6492,19 @@ if (
         }
     ]
 
+
     start_marker = pd.DataFrame(
+
         [
             {
                 "label":
                     "Current habitat centre",
+
                 "lat":
                     start[
                         "lat"
                     ],
+
                 "lon":
                     start[
                         "lon"
@@ -4581,15 +6513,19 @@ if (
         ]
     )
 
+
     end_marker = pd.DataFrame(
+
         [
             {
                 "label":
                     "+72 h habitat centre",
+
                 "lat":
                     end[
                         "lat"
                     ],
+
                 "lon":
                     end[
                         "lon"
@@ -4598,27 +6534,34 @@ if (
         ]
     )
 
+
     label_points = pd.DataFrame(
+
         [
             {
                 "label":
                     "START",
+
                 "lat":
                     start[
                         "lat"
                     ],
+
                 "lon":
                     start[
                         "lon"
                     ]
             },
+
             {
                 "label":
                     "+72 h",
+
                 "lat":
                     end[
                         "lat"
                     ],
+
                 "lon":
                     end[
                         "lon"
@@ -4627,12 +6570,17 @@ if (
         ]
     )
 
+
     path_layer = pdk.Layer(
+
         "PathLayer",
+
         data=
             shift_path_data,
+
         get_path=
             "path",
+
         get_color=
             [
                 0,
@@ -4640,23 +6588,31 @@ if (
                 255,
                 230
             ],
+
         get_width=
             5,
+
         width_min_pixels=
             5,
+
         pickable=
             True
     )
 
+
     start_layer = pdk.Layer(
+
         "ScatterplotLayer",
+
         data=
             start_marker,
+
         get_position=
             [
                 "lon",
                 "lat"
             ],
+
         get_fill_color=
             [
                 30,
@@ -4664,6 +6620,7 @@ if (
                 90,
                 240
             ],
+
         get_line_color=
             [
                 255,
@@ -4671,27 +6628,37 @@ if (
                 255,
                 255
             ],
+
         stroked=
             True,
+
         line_width_min_pixels=
             2,
+
         get_radius=
             500,
+
         radius_min_pixels=
             8,
+
         pickable=
             True
     )
 
+
     end_layer = pdk.Layer(
+
         "ScatterplotLayer",
+
         data=
             end_marker,
+
         get_position=
             [
                 "lon",
                 "lat"
             ],
+
         get_fill_color=
             [
                 255,
@@ -4699,6 +6666,7 @@ if (
                 40,
                 240
             ],
+
         get_line_color=
             [
                 255,
@@ -4706,31 +6674,43 @@ if (
                 255,
                 255
             ],
+
         stroked=
             True,
+
         line_width_min_pixels=
             2,
+
         get_radius=
             500,
+
         radius_min_pixels=
             8,
+
         pickable=
             True
     )
 
+
     label_layer = pdk.Layer(
+
         "TextLayer",
+
         data=
             label_points,
+
         get_position=
             [
                 "lon",
                 "lat"
             ],
+
         get_text=
             "label",
+
         get_size=
             16,
+
         get_color=
             [
                 20,
@@ -4738,21 +6718,28 @@ if (
                 20,
                 255
             ],
+
         get_pixel_offset=
             [
                 0,
                 -18
             ],
+
         pickable=
             False
     )
 
+
     st.pydeck_chart(
+
         pdk.Deck(
+
             map_style=
                 BASEMAP_URL,
+
             initial_view_state=
                 pdk.ViewState(
+
                     latitude=
                         (
                             start[
@@ -4765,6 +6752,7 @@ if (
                         )
                         /
                         2,
+
                     longitude=
                         (
                             start[
@@ -4777,29 +6765,33 @@ if (
                         )
                         /
                         2,
+
                     zoom=
                         10.3,
+
                     pitch=
                         0
                 ),
-            layers=
-                [
-                    path_layer,
-                    start_layer,
-                    end_layer,
-                    label_layer
-                ],
-            tooltip=
-                {
-                    "html":
-                        "<b>{label}{name}</b>"
-                }
+
+            layers=[
+                path_layer,
+                start_layer,
+                end_layer,
+                label_layer
+            ],
+
+            tooltip={
+                "html":
+                    "<b>{label}{name}</b>"
+            }
         ),
-        use_container_width=
-            True
+
+        use_container_width=True
     )
 
+
     st.markdown(
+
         f"**E-AWARE interpretation:** "
         f"The centre of relatively suitable habitat "
         f"is forecast to shift "
@@ -4808,16 +6800,18 @@ if (
         f"to be **{coastal_interpretation.lower()}**."
     )
 
+
 else:
 
     st.warning(
-        "Not enough forecast information is available "
-        "to draw the habitat-shift map."
+        "Not enough forecast information "
+        "is available to draw the "
+        "habitat-shift map."
     )
 
 
 # ============================================================
-# FORECAST TABLE
+# 72-HOUR FORECAST
 # ============================================================
 
 st.subheader(
@@ -4826,18 +6820,19 @@ st.subheader(
 
 
 st.dataframe(
+
     pd.DataFrame(
         forecast_results
     ),
-    use_container_width=
-        True,
-    hide_index=
-        True
+
+    use_container_width=True,
+
+    hide_index=True
 )
 
 
 # ============================================================
-# SMS
+# SMS ALERT
 # ============================================================
 
 st.subheader(
@@ -4853,9 +6848,11 @@ best_hsi = float(
 
 
 habitat_status = (
+
     hsi_class(
         best_hsi
     )
+
     .upper()
 )
 
@@ -4899,21 +6896,25 @@ E-AWARE provides habitat guidance only.
 
 
 st.text_area(
+
     "Example SMS",
+
     sms_message,
-    height=
-        500
+
+    height=500
 )
 
 
 st.caption(
-    "Validated oxycline remains out of the fisher-facing "
-    "SMS and HSI while V1.4 is being validated."
+    "V1.4 Step 3 keeps local oxycline depth "
+    "out of the fisher-facing SMS and HSI "
+    "while the new vertical calculation "
+    "is being validated."
 )
 
 
 # ============================================================
-# SOURCES
+# DATA SOURCES
 # ============================================================
 
 st.subheader(
@@ -4922,76 +6923,106 @@ st.subheader(
 
 
 source_table = pd.DataFrame(
+
     [
         {
             "Source":
                 "Copernicus Marine Physics",
+
             "Status":
                 "Analysis / forecast",
+
             "Use":
                 "Temperature, salinity and SST anomaly"
         },
+
         {
             "Source":
                 "Copernicus Marine Biogeochemistry",
+
             "Status":
                 "3D analysis / forecast",
+
             "Use":
                 "Surface oxygen and vertical oxygen profiles"
         },
+
         {
             "Source":
-                "Derived from Copernicus BGC",
+                "Derived from Copernicus BGC + local GEBCO depth",
+
             "Status":
                 "Validation predictor",
+
             "Use":
-                "Raw 1 mL/L oxycline by vertical interpolation"
+                "Seabed-constrained 1 mL/L oxycline depth"
         },
+
         {
             "Source":
                 "GEBCO_2026 via Ocean Data Bank API",
+
             "Status":
                 "Static terrain model",
+
             "Use":
-                "Bathymetry, land filtering and oxycline physical validation"
+                "Bathymetry, land filtering and "
+                "local water-column limit"
         },
+
         {
             "Source":
                 "NOAA NCEI High-Res Coastline",
+
             "Status":
                 "Static coastline geometry",
+
             "Use":
-                "Distance from coast in km and nautical miles"
+                "Distance from coast in km "
+                "and nautical miles"
         },
+
         {
             "Source":
                 "Castillo et al. (2019)",
+
             "Status":
                 "Scientific reference",
+
             "Use":
                 "Anchoveta environmental reference ranges"
         },
+
         {
             "Source":
                 "Hill et al. (2026)",
+
             "Status":
                 "Scientific reference",
+
             "Use":
-                "Supports bathymetry, coast distance and 1 mL/L oxycline as predictors"
+                "Supports bathymetry, coast distance "
+                "and 1 mL/L oxycline as habitat predictors"
         },
+
         {
             "Source":
                 "IMARPE",
+
             "Status":
                 "Scientific observations",
+
             "Use":
                 "Future training / validation"
         },
+
         {
             "Source":
                 "PRODUCE",
+
             "Status":
                 "Regulatory",
+
             "Use":
                 "Future protection / closure layer"
         }
@@ -5000,11 +7031,12 @@ source_table = pd.DataFrame(
 
 
 st.dataframe(
+
     source_table,
-    use_container_width=
-        True,
-    hide_index=
-        True
+
+    use_container_width=True,
+
+    hide_index=True
 )
 
 
@@ -5013,68 +7045,105 @@ st.dataframe(
 # ============================================================
 
 st.subheader(
-    "🧪 V1.4 Step 2 Model Status"
+    "🧪 V1.4 Step 3 Model Status"
 )
 
 
-s1, s2 = st.columns(
-    2
+model1, model2 = (
+    st.columns(
+        2
+    )
 )
 
 
-s1.success(
-    "Raw Copernicus oxycline estimates are checked "
-    "against local GEBCO seabed depth before acceptance."
+model1.success(
+    "The local oxycline is now calculated only "
+    "from BGC depth levels that physically lie "
+    "above the local GEBCO seabed."
 )
 
 
-s2.warning(
-    "Validated oxycline is still not included in the HSI. "
-    "Rejected values are kept only for transparency."
+model2.warning(
+    "Local oxycline is still not included in "
+    "the HSI. The method is conservative and "
+    "does not interpolate using a BGC depth "
+    "level that lies below the local seabed."
 )
 
+
+# ============================================================
+# LIMITATIONS
+# ============================================================
 
 with st.expander(
-    "⚙️ MVP V1.4 Step 2 Limitations"
+    "⚙️ MVP V1.4 Step 3 Limitations"
 ):
 
     st.markdown(
         """
 ### Current HSI inputs
+
 - Sea temperature
 - Salinity
 - Surface dissolved oxygen
 
 ### Additional predictors / context
+
 - SST anomaly
 - GEBCO bathymetry
 - Distance from coast
-- Validated oxycline depth
+- Seabed-constrained oxycline depth
 - Season
 
-### Oxycline physical constraint
+### V1.4 Step 3 oxycline method
 
-The raw oxycline is derived from the nearest Copernicus BGC
-profile using the first downward crossing of **1 mL/L O₂**.
+For each E-AWARE grid cell, the nearest Copernicus
+BGC oxygen profile is selected for the same date.
 
-Because the BGC grid is coarser than the E-AWARE physics grid,
-the nearest BGC profile can represent water deeper than the
-local E-AWARE cell.
+E-AWARE calculates two different values.
 
-V1.4 Step 2 therefore applies:
+**Raw full-profile oxycline**
 
-**Accept oxycline only if raw oxycline depth ≤ local GEBCO water depth.**
+This is the 1 mL/L crossing in the complete coarse
+Copernicus BGC profile.
 
-If the raw oxycline lies below the local seabed, the value is rejected.
+**Local oxycline**
 
-### Important interpretation
+Before calculating the local oxycline, E-AWARE
+removes every Copernicus BGC depth level that lies
+deeper than the local GEBCO seabed.
 
-A rejected below-seabed value does **not** prove that no local
-oxycline exists above the seabed.
+The 1 mL/L threshold is then searched for only
+inside the remaining physically valid model levels.
 
-It means the nearest coarse BGC profile does not provide a
-physically valid local oxycline estimate for that finer
-E-AWARE cell.
+This means below-seabed BGC oxygen values cannot
+create a local oxycline estimate.
+
+### Conservative treatment near the seabed
+
+The deepest valid BGC model level may still be
+shallower than the actual GEBCO seabed because
+the vertical model uses discrete depth levels.
+
+E-AWARE therefore reports the:
+
+**Unsampled Gap to Seabed**
+
+If oxygen is still above 1 mL/L at the deepest
+valid BGC level, E-AWARE does not use the next
+BGC level below the seabed to estimate a crossing.
+
+Instead it reports that the threshold was not
+reached in the physically valid BGC levels.
+
+### Resolution limitation
+
+Copernicus BGC is coarser than the E-AWARE physics
+grid.
+
+Multiple finer E-AWARE cells can therefore use the
+same nearest BGC vertical oxygen profile while
+having different local GEBCO water depths.
 
 ### HSI
 
@@ -5084,10 +7153,15 @@ The temporary HSI remains:
 
 with equal weights.
 
+Bathymetry, distance from coast and oxycline depth
+remain independent predictors until a trained
+habitat relationship is introduced.
+
 ### Still not integrated
+
 - Oxycline HSI weighting
 - Oxycline map layer
-- Historical IMARPE observations
+- Historical IMARPE anchoveta observations
 - Trained habitat model
 - Chlorophyll
 - Ocean currents
@@ -5097,17 +7171,22 @@ with equal weights.
     )
 
 
+# ============================================================
+# FOOTER
+# ============================================================
+
 st.divider()
 
 
 st.caption(
-    "E-AWARE MVP V1.4 Step 2 | "
+    "E-AWARE MVP V1.4 Step 3 | "
     "El Niño Adaptive Fisheries Intelligence | "
     "Decision-support research prototype"
 )
 
 
 st.caption(
-    "Habitat suitability is a model estimate and must not "
-    "be used as navigation, safety or legal fishing advice."
+    "Habitat suitability is a model estimate "
+    "and must not be used as navigation, safety "
+    "or legal fishing advice."
 )
