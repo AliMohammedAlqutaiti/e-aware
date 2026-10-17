@@ -17,49 +17,27 @@ import xarray as xr
 # PAGE / STUDY AREA
 # ============================================================
 
-st.set_page_config(
-    page_title="E-AWARE",
-    page_icon="🐟",
-    layout="wide"
-)
-
+st.set_page_config(page_title="E-AWARE", page_icon="🐟", layout="wide")
 st.title("🐟 E-AWARE")
-
-st.caption(
-    "El Niño Adaptive Fisheries Intelligence — MVP V1.3 Step 2"
-)
+st.caption("El Niño Adaptive Fisheries Intelligence — MVP V1.4 Step 1")
 
 st.info(
-    "E-AWARE estimates suitable anchoveta habitat from "
-    "environmental conditions. It does not show the exact "
-    "location or swimming direction of individual fish schools."
+    "E-AWARE estimates suitable anchoveta habitat from environmental conditions. "
+    "It does not show the exact location or swimming direction of individual fish schools."
 )
 
 
 MIN_LON = -81.50
 MAX_LON = -81.20
-
 MIN_LAT = -4.60
 MAX_LAT = -4.36
 
 
 COMMUNITIES = pd.DataFrame(
     [
-        {
-            "name": "Lobitos",
-            "lat": -4.4567,
-            "lon": -81.2849
-        },
-        {
-            "name": "Siches",
-            "lat": -4.4890,
-            "lon": -81.2680
-        },
-        {
-            "name": "Piedritas",
-            "lat": -4.5190,
-            "lon": -81.2630
-        }
+        {"name": "Lobitos", "lat": -4.4567, "lon": -81.2849},
+        {"name": "Siches", "lat": -4.4890, "lon": -81.2680},
+        {"name": "Piedritas", "lat": -4.5190, "lon": -81.2630},
     ]
 )
 
@@ -99,14 +77,16 @@ NOAA_COASTLINE_QUERY_URL = (
 
 COASTLINE_QUERY_MARGIN_DEG = 0.75
 
-
 BASEMAP_URL = (
     "https://basemaps.cartocdn.com/"
     "gl/positron-gl-style/style.json"
 )
 
-
 KM_PER_NAUTICAL_MILE = 1.852
+
+OXYGEN_MMOL_M3_TO_ML_L = 0.0223916
+
+OXYCLINE_THRESHOLD_ML_L = 1.0
 
 
 # ============================================================
@@ -136,7 +116,7 @@ def get_credentials():
 
 
 # ============================================================
-# PREPARE COPERNICUS DATA
+# PREPARE COPERNICUS 2D DATA
 # ============================================================
 
 def prepare_dataframe(
@@ -281,7 +261,7 @@ def prepare_dataframe(
 
 
 # ============================================================
-# DOWNLOAD COPERNICUS DATA
+# DOWNLOAD COPERNICUS 2D / SURFACE SUBSET
 # ============================================================
 
 def download_subset(
@@ -415,8 +395,9 @@ def download_subset(
             if not netcdf_files:
 
                 raise RuntimeError(
-                    f"{output_name} download completed "
-                    "but no NetCDF file was found."
+                    f"{output_name} download "
+                    "completed but no NetCDF "
+                    "file was found."
                 )
 
 
@@ -431,11 +412,13 @@ def download_subset(
             file_path
         ) as ds:
 
+
             if variable not in ds.data_vars:
 
                 raise RuntimeError(
-                    f"Variable '{variable}' was not "
-                    f"found in the {output_name} file."
+                    f"Variable '{variable}' "
+                    f"was not found in the "
+                    f"{output_name} file."
                 )
 
 
@@ -476,7 +459,7 @@ def download_subset(
 
 
 # ============================================================
-# COPERNICUS LOADERS
+# STANDARD COPERNICUS LOADERS
 # ============================================================
 
 @st.cache_data(
@@ -554,45 +537,732 @@ def load_sst_anomaly(
     )
 
 
+# ============================================================
+# V1.4 — FULL 3D OXYGEN PROFILE
+# ============================================================
+
 @st.cache_data(
     ttl=1800,
     show_spinner=False
 )
-def load_oxygen(
+def load_oxygen_profile(
     start_date,
     end_date
 ):
 
-    oxygen = download_subset(
-
-        OXYGEN_DATASET,
-
-        "o2",
-
-        "oxygen_mmol_m3",
-
-        start_date,
-
-        end_date,
-
-        True
+    username, password = (
+        get_credentials()
     )
 
 
-    oxygen[
+    os.environ[
+        "COPERNICUSMARINE_TRUST_ENV"
+    ] = "False"
+
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+
+        filename = (
+            "oxygen_profile.nc"
+        )
+
+
+        response = (
+            copernicusmarine.subset(
+
+                dataset_id=
+                    OXYGEN_DATASET,
+
+                variables=
+                    [
+                        "o2"
+                    ],
+
+                minimum_longitude=
+                    MIN_LON,
+
+                maximum_longitude=
+                    MAX_LON,
+
+                minimum_latitude=
+                    MIN_LAT,
+
+                maximum_latitude=
+                    MAX_LAT,
+
+                start_datetime=
+                    f"{start_date}T00:00:00",
+
+                end_datetime=
+                    f"{end_date}T23:59:59",
+
+                username=
+                    username,
+
+                password=
+                    password,
+
+                service=
+                    "arco-geo-series",
+
+                output_filename=
+                    filename,
+
+                output_directory=
+                    temp_dir,
+
+                disable_progress_bar=
+                    True
+            )
+        )
+
+
+        possible_path = Path(
+            str(
+                response.file_path
+            )
+        )
+
+
+        if possible_path.exists():
+
+            file_path = (
+                possible_path
+            )
+
+        else:
+
+            file_path = (
+                Path(
+                    temp_dir
+                )
+                /
+                filename
+            )
+
+
+        if not file_path.exists():
+
+            netcdf_files = list(
+                Path(
+                    temp_dir
+                )
+                .glob(
+                    "*.nc"
+                )
+            )
+
+
+            if not netcdf_files:
+
+                raise RuntimeError(
+                    "Oxygen-profile download "
+                    "completed but no NetCDF "
+                    "file was found."
+                )
+
+
+            file_path = (
+                netcdf_files[
+                    0
+                ]
+            )
+
+
+        with xr.open_dataset(
+            file_path
+        ) as ds:
+
+
+            if "o2" not in ds.data_vars:
+
+                raise RuntimeError(
+                    "Variable 'o2' was not found "
+                    "in the oxygen-profile file."
+                )
+
+
+            data_array = (
+                ds[
+                    "o2"
+                ]
+                .load()
+            )
+
+
+            dataframe = (
+                data_array
+                .to_dataframe(
+                    name=
+                        "oxygen_mmol_m3"
+                )
+                .reset_index()
+            )
+
+
+    rename_map = {}
+
+
+    for column in dataframe.columns:
+
+        column_lower = str(
+            column
+        ).lower()
+
+
+        if column_lower in [
+            "latitude",
+            "lat"
+        ]:
+
+            rename_map[
+                column
+            ] = "lat"
+
+
+        elif column_lower in [
+            "longitude",
+            "lon"
+        ]:
+
+            rename_map[
+                column
+            ] = "lon"
+
+
+    dataframe = (
+        dataframe.rename(
+            columns=rename_map
+        )
+    )
+
+
+    required_columns = [
+        "time",
+        "depth",
+        "lat",
+        "lon",
+        "oxygen_mmol_m3"
+    ]
+
+
+    missing = [
+        column
+        for column in required_columns
+        if column not in dataframe.columns
+    ]
+
+
+    if missing:
+
+        raise RuntimeError(
+            f"Missing oxygen-profile columns: "
+            f"{missing}"
+        )
+
+
+    dataframe = (
+
+        dataframe
+
+        .dropna(
+            subset=[
+                "oxygen_mmol_m3",
+                "depth"
+            ]
+        )
+
+        .copy()
+    )
+
+
+    dataframe[
+        "date"
+    ] = (
+
+        pd.to_datetime(
+            dataframe[
+                "time"
+            ]
+        )
+
+        .dt.date
+    )
+
+
+    dataframe[
+        "depth"
+    ] = (
+
+        dataframe[
+            "depth"
+        ]
+
+        .astype(
+            float
+        )
+    )
+
+
+    dataframe[
+        "lat"
+    ] = (
+
+        dataframe[
+            "lat"
+        ]
+
+        .astype(
+            float
+        )
+    )
+
+
+    dataframe[
+        "lon"
+    ] = (
+
+        dataframe[
+            "lon"
+        ]
+
+        .astype(
+            float
+        )
+    )
+
+
+    dataframe[
+        "lat_key"
+    ] = (
+
+        dataframe[
+            "lat"
+        ]
+
+        .round(
+            3
+        )
+    )
+
+
+    dataframe[
+        "lon_key"
+    ] = (
+
+        dataframe[
+            "lon"
+        ]
+
+        .round(
+            3
+        )
+    )
+
+
+    dataframe[
         "oxygen_ml_l"
     ] = (
 
-        oxygen[
+        dataframe[
             "oxygen_mmol_m3"
         ]
 
+        .astype(
+            float
+        )
+
         *
-        0.0223916
+        OXYGEN_MMOL_M3_TO_ML_L
     )
 
 
-    return oxygen
+    return dataframe[
+        [
+            "date",
+            "depth",
+            "lat",
+            "lon",
+            "lat_key",
+            "lon_key",
+            "oxygen_mmol_m3",
+            "oxygen_ml_l"
+        ]
+    ]
+
+
+# ============================================================
+# SURFACE OXYGEN FROM FULL PROFILE
+# ============================================================
+
+def surface_oxygen_from_profile(
+    profile_dataframe
+):
+
+    surface = (
+
+        profile_dataframe
+
+        .sort_values(
+            "depth"
+        )
+
+        .groupby(
+            [
+                "date",
+                "lat_key",
+                "lon_key"
+            ],
+
+            as_index=False
+        )
+
+        .head(
+            1
+        )
+
+        .copy()
+    )
+
+
+    return surface[
+        [
+            "date",
+            "lat",
+            "lon",
+            "lat_key",
+            "lon_key",
+            "oxygen_mmol_m3",
+            "oxygen_ml_l"
+        ]
+    ]
+
+
+# ============================================================
+# CALCULATE OXYCLINE DEPTH
+# ============================================================
+
+def estimate_oxycline_depth(
+    profile,
+    threshold_ml_l=
+        OXYCLINE_THRESHOLD_ML_L
+):
+
+    clean = (
+
+        profile[
+            [
+                "depth",
+                "oxygen_ml_l"
+            ]
+        ]
+
+        .dropna()
+
+        .sort_values(
+            "depth"
+        )
+
+        .drop_duplicates(
+            subset=[
+                "depth"
+            ]
+        )
+    )
+
+
+    if clean.empty:
+
+        return (
+            np.nan,
+            "No valid oxygen profile"
+        )
+
+
+    depths = (
+
+        clean[
+            "depth"
+        ]
+
+        .to_numpy(
+            dtype=float
+        )
+    )
+
+
+    oxygen = (
+
+        clean[
+            "oxygen_ml_l"
+        ]
+
+        .to_numpy(
+            dtype=float
+        )
+    )
+
+
+    # If the shallowest model level is already
+    # at or below the 1 mL/L threshold.
+
+    if oxygen[
+        0
+    ] <= threshold_ml_l:
+
+        return (
+
+            float(
+                depths[
+                    0
+                ]
+            ),
+
+            "Threshold reached at shallowest model level"
+        )
+
+
+    # Search downward for the first crossing
+    # from > 1 mL/L to <= 1 mL/L.
+
+    for index in range(
+        1,
+        len(
+            depths
+        )
+    ):
+
+
+        upper_oxygen = (
+            oxygen[
+                index
+                -
+                1
+            ]
+        )
+
+
+        lower_oxygen = (
+            oxygen[
+                index
+            ]
+        )
+
+
+        if (
+            upper_oxygen
+            >
+            threshold_ml_l
+
+            and
+
+            lower_oxygen
+            <=
+            threshold_ml_l
+        ):
+
+
+            upper_depth = (
+                depths[
+                    index
+                    -
+                    1
+                ]
+            )
+
+
+            lower_depth = (
+                depths[
+                    index
+                ]
+            )
+
+
+            # Linear interpolation between
+            # the two model depth levels.
+
+            if (
+                lower_oxygen
+                ==
+                upper_oxygen
+            ):
+
+                crossing_depth = (
+                    lower_depth
+                )
+
+
+            else:
+
+                fraction = (
+
+                    (
+                        threshold_ml_l
+                        -
+                        upper_oxygen
+                    )
+
+                    /
+
+                    (
+                        lower_oxygen
+                        -
+                        upper_oxygen
+                    )
+                )
+
+
+                crossing_depth = (
+
+                    upper_depth
+
+                    +
+
+                    fraction
+
+                    *
+                    (
+                        lower_depth
+                        -
+                        upper_depth
+                    )
+                )
+
+
+            return (
+
+                float(
+                    crossing_depth
+                ),
+
+                "Interpolated 1 mL/L crossing"
+            )
+
+
+    return (
+
+        np.nan,
+
+        (
+            "1 mL/L threshold not reached "
+            "in available water column"
+        )
+    )
+
+
+# ============================================================
+# BUILD OXYCLINE TABLE
+# ============================================================
+
+def calculate_oxycline_table(
+    profile_dataframe
+):
+
+    records = []
+
+
+    group_columns = [
+        "date",
+        "lat_key",
+        "lon_key"
+    ]
+
+
+    for (
+        target_date,
+        lat_key,
+        lon_key
+    ), group in profile_dataframe.groupby(
+        group_columns
+    ):
+
+
+        group = (
+            group.sort_values(
+                "depth"
+            )
+        )
+
+
+        (
+            oxycline_depth,
+            status
+        ) = estimate_oxycline_depth(
+            group
+        )
+
+
+        records.append(
+            {
+                "date":
+                    target_date,
+
+                "lat":
+                    float(
+                        group[
+                            "lat"
+                        ]
+                        .iloc[
+                            0
+                        ]
+                    ),
+
+                "lon":
+                    float(
+                        group[
+                            "lon"
+                        ]
+                        .iloc[
+                            0
+                        ]
+                    ),
+
+                "lat_key":
+                    float(
+                        lat_key
+                    ),
+
+                "lon_key":
+                    float(
+                        lon_key
+                    ),
+
+                "oxycline_depth_m":
+                    oxycline_depth,
+
+                "oxycline_status":
+                    status,
+
+                "profile_min_depth_m":
+                    float(
+                        group[
+                            "depth"
+                        ]
+                        .min()
+                    ),
+
+                "profile_max_depth_m":
+                    float(
+                        group[
+                            "depth"
+                        ]
+                        .max()
+                    ),
+
+                "profile_levels":
+                    int(
+                        group[
+                            "depth"
+                        ]
+                        .nunique()
+                    )
+            }
+        )
+
+
+    return pd.DataFrame(
+        records
+    )
 
 
 # ============================================================
@@ -661,16 +1331,16 @@ def merge_physics_data(
 
 
 # ============================================================
-# MAP OXYGEN TO PHYSICS GRID
+# MAP SURFACE OXYGEN TO PHYSICS GRID
 # ============================================================
 
 def attach_nearest_oxygen(
-    physics_df,
-    oxygen_df
+    physics_dataframe,
+    oxygen_dataframe
 ):
 
     result = (
-        physics_df.copy()
+        physics_dataframe.copy()
     )
 
 
@@ -696,6 +1366,7 @@ def attach_nearest_oxygen(
         .unique()
     ):
 
+
         target_mask = (
 
             result[
@@ -714,9 +1385,9 @@ def attach_nearest_oxygen(
         )
 
 
-        source_rows = oxygen_df[
+        source_rows = oxygen_dataframe[
 
-            oxygen_df[
+            oxygen_dataframe[
                 "date"
             ]
 
@@ -857,7 +1528,7 @@ def attach_nearest_oxygen(
         )
 
 
-        nearest_idx = np.argmin(
+        nearest_index = np.argmin(
 
             distance_km,
 
@@ -871,11 +1542,13 @@ def attach_nearest_oxygen(
         ] = (
 
             source_rows
+
             .iloc[
-                nearest_idx
+                nearest_index
             ][
                 "oxygen_mmol_m3"
             ]
+
             .to_numpy(
                 dtype=float
             )
@@ -888,11 +1561,13 @@ def attach_nearest_oxygen(
         ] = (
 
             source_rows
+
             .iloc[
-                nearest_idx
+                nearest_index
             ][
                 "oxygen_ml_l"
             ]
+
             .to_numpy(
                 dtype=float
             )
@@ -910,7 +1585,7 @@ def attach_nearest_oxygen(
                 )
             ),
 
-            nearest_idx
+            nearest_index
         ]
 
 
@@ -928,7 +1603,326 @@ def attach_nearest_oxygen(
 
 
 # ============================================================
-# GEBCO JSON HELPERS
+# MAP OXYCLINE TO PHYSICS GRID
+# ============================================================
+
+def attach_nearest_oxycline(
+    physics_dataframe,
+    oxycline_dataframe
+):
+
+    result = (
+        physics_dataframe.copy()
+    )
+
+
+    result[
+        "oxycline_depth_m"
+    ] = np.nan
+
+
+    result[
+        "oxycline_source_distance_km"
+    ] = np.nan
+
+
+    result[
+        "oxycline_status"
+    ] = None
+
+
+    result[
+        "oxycline_profile_max_depth_m"
+    ] = np.nan
+
+
+    result[
+        "oxycline_profile_levels"
+    ] = np.nan
+
+
+    mapped_any = False
+
+
+    for target_date in sorted(
+        result[
+            "date"
+        ]
+        .unique()
+    ):
+
+
+        target_mask = (
+
+            result[
+                "date"
+            ]
+
+            ==
+            target_date
+        )
+
+
+        target_rows = (
+            result.loc[
+                target_mask
+            ]
+        )
+
+
+        source_rows = oxycline_dataframe[
+
+            oxycline_dataframe[
+                "date"
+            ]
+
+            ==
+            target_date
+
+        ]
+
+
+        if source_rows.empty:
+
+            continue
+
+
+        target_lat = (
+
+            target_rows[
+                "lat"
+            ]
+
+            .to_numpy(
+                dtype=float
+            )
+        )
+
+
+        target_lon = (
+
+            target_rows[
+                "lon"
+            ]
+
+            .to_numpy(
+                dtype=float
+            )
+        )
+
+
+        source_lat = (
+
+            source_rows[
+                "lat"
+            ]
+
+            .to_numpy(
+                dtype=float
+            )
+        )
+
+
+        source_lon = (
+
+            source_rows[
+                "lon"
+            ]
+
+            .to_numpy(
+                dtype=float
+            )
+        )
+
+
+        dlat_km = (
+
+            target_lat[
+                :,
+                None
+            ]
+
+            -
+
+            source_lat[
+                None,
+                :
+            ]
+
+        ) * 111.32
+
+
+        mean_latitude = np.radians(
+
+            (
+
+                target_lat[
+                    :,
+                    None
+                ]
+
+                +
+
+                source_lat[
+                    None,
+                    :
+                ]
+
+            )
+
+            /
+            2.0
+        )
+
+
+        dlon_km = (
+
+            target_lon[
+                :,
+                None
+            ]
+
+            -
+
+            source_lon[
+                None,
+                :
+            ]
+
+        ) * (
+
+            111.32
+
+            *
+
+            np.cos(
+                mean_latitude
+            )
+        )
+
+
+        distance_km = np.sqrt(
+
+            dlat_km
+            ** 2
+
+            +
+
+            dlon_km
+            ** 2
+        )
+
+
+        nearest_index = np.argmin(
+
+            distance_km,
+
+            axis=1
+        )
+
+
+        nearest_rows = (
+
+            source_rows
+            .iloc[
+                nearest_index
+            ]
+        )
+
+
+        result.loc[
+            target_mask,
+            "oxycline_depth_m"
+        ] = (
+
+            nearest_rows[
+                "oxycline_depth_m"
+            ]
+
+            .to_numpy(
+                dtype=float
+            )
+        )
+
+
+        result.loc[
+            target_mask,
+            "oxycline_source_distance_km"
+        ] = distance_km[
+
+            np.arange(
+                len(
+                    target_rows
+                )
+            ),
+
+            nearest_index
+        ]
+
+
+        result.loc[
+            target_mask,
+            "oxycline_status"
+        ] = (
+
+            nearest_rows[
+                "oxycline_status"
+            ]
+
+            .astype(
+                str
+            )
+
+            .to_numpy()
+        )
+
+
+        result.loc[
+            target_mask,
+            "oxycline_profile_max_depth_m"
+        ] = (
+
+            nearest_rows[
+                "profile_max_depth_m"
+            ]
+
+            .to_numpy(
+                dtype=float
+            )
+        )
+
+
+        result.loc[
+            target_mask,
+            "oxycline_profile_levels"
+        ] = (
+
+            nearest_rows[
+                "profile_levels"
+            ]
+
+            .to_numpy(
+                dtype=float
+            )
+        )
+
+
+        mapped_any = True
+
+
+    if not mapped_any:
+
+        raise RuntimeError(
+            "Oxycline results could not be "
+            "matched to the E-AWARE physics grid."
+        )
+
+
+    return result
+
+
+# ============================================================
+# GEBCO HELPERS
 # ============================================================
 
 def first_numeric(
@@ -1061,16 +2055,18 @@ def numeric_list(
         )
     ):
 
-        one_value = first_numeric(
+        number = first_numeric(
             value
         )
 
-        if one_value is None:
+
+        if number is None:
 
             return []
 
+
         return [
-            one_value
+            number
         ]
 
 
@@ -1078,6 +2074,7 @@ def numeric_list(
         value,
         dict
     ):
+
 
         if "z" in value:
 
@@ -1103,6 +2100,7 @@ def numeric_list(
                     ]
                 )
 
+
                 if values:
 
                     return values
@@ -1124,6 +2122,7 @@ def numeric_list(
 
         for item in value:
 
+
             if (
                 isinstance(
                     item,
@@ -1135,24 +2134,25 @@ def numeric_list(
                 "z" in item
             ):
 
-                z_value = first_numeric(
+                number = first_numeric(
                     item[
                         "z"
                     ]
                 )
 
+
             else:
 
-                z_value = first_numeric(
+                number = first_numeric(
                     item
                 )
 
 
-            if z_value is not None:
+            if number is not None:
 
                 output.append(
                     float(
-                        z_value
+                        number
                     )
                 )
 
@@ -1170,7 +2170,8 @@ def validate_elevation(
     if value is None:
 
         raise RuntimeError(
-            "GEBCO API returned no elevation value."
+            "GEBCO API returned "
+            "no elevation value."
         )
 
 
@@ -1202,8 +2203,9 @@ def validate_elevation(
     ):
 
         raise RuntimeError(
-            "GEBCO API returned an "
-            f"implausible elevation: {value} m."
+            "GEBCO API returned "
+            f"an implausible elevation: "
+            f"{value} m."
         )
 
 
@@ -1242,7 +2244,7 @@ def get_gebco_elevation(
             "application/json",
 
         "User-Agent":
-            "E-AWARE/1.3 academic prototype"
+            "E-AWARE/1.4 academic prototype"
     }
 
 
@@ -1283,6 +2285,7 @@ def get_gebco_elevation(
             ]
         )
 
+
     else:
 
         z_value = first_numeric(
@@ -1296,7 +2299,7 @@ def get_gebco_elevation(
 
 
 # ============================================================
-# BATCH GEBCO
+# BATCH GEBCO REQUEST
 # ============================================================
 
 @st.cache_data(
@@ -1357,7 +2360,7 @@ def get_gebco_batch(
             "application/json",
 
         "User-Agent":
-            "E-AWARE/1.3 academic prototype"
+            "E-AWARE/1.4 academic prototype"
     }
 
 
@@ -1394,21 +2397,22 @@ def get_gebco_batch(
             "z" in payload
         ):
 
-            z_values = numeric_list(
+            values = numeric_list(
                 payload[
                     "z"
                 ]
             )
 
+
         else:
 
-            z_values = numeric_list(
+            values = numeric_list(
                 payload
             )
 
 
         if len(
-            z_values
+            values
         ) == len(
             points
         ):
@@ -1419,7 +2423,7 @@ def get_gebco_batch(
                     value
                 )
 
-                for value in z_values
+                for value in values
             ]
 
 
@@ -1440,7 +2444,7 @@ def get_gebco_batch(
 
 
 # ============================================================
-# ATTACH BATHYMETRY
+# ATTACH GEBCO BATHYMETRY
 # ============================================================
 
 def attach_gebco_bathymetry(
@@ -1677,12 +2681,12 @@ def load_noaa_coastline_lines():
             "application/json",
 
         "User-Agent":
-            "E-AWARE/1.3 academic prototype"
+            "E-AWARE/1.4 academic prototype"
     }
 
 
     # --------------------------------------------------------
-    # GEOJSON
+    # TRY GEOJSON FIRST
     # --------------------------------------------------------
 
     try:
@@ -1690,6 +2694,7 @@ def load_noaa_coastline_lines():
         params = dict(
             common_params
         )
+
 
         params[
             "f"
@@ -1723,6 +2728,7 @@ def load_noaa_coastline_lines():
             "features",
             []
         ):
+
 
             geometry = feature.get(
                 "geometry"
@@ -1780,12 +2786,13 @@ def load_noaa_coastline_lines():
 
 
     # --------------------------------------------------------
-    # ARCGIS JSON FALLBACK
+    # FALLBACK TO ARCGIS JSON
     # --------------------------------------------------------
 
     params = dict(
         common_params
     )
+
 
     params[
         "f"
@@ -1828,6 +2835,7 @@ def load_noaa_coastline_lines():
         []
     ):
 
+
         geometry = feature.get(
             "geometry"
         ) or {}
@@ -1856,7 +2864,7 @@ def load_noaa_coastline_lines():
 
 
 # ============================================================
-# POINT-TO-SEGMENT DISTANCE
+# POINT TO COASTLINE SEGMENT DISTANCE
 # ============================================================
 
 def point_to_segment_distance_km(
@@ -2036,12 +3044,17 @@ def distance_to_nearest_coast_km(
 
     for line in coastline_lines:
 
+
         if (
             not line
+
             or
+
             len(
                 line
-            ) < 2
+            )
+            <
+            2
         ):
 
             continue
@@ -2055,9 +3068,11 @@ def distance_to_nearest_coast_km(
             1
         ):
 
+
             point1 = line[
                 index
             ]
+
 
             point2 = line[
                 index
@@ -2069,13 +3084,17 @@ def distance_to_nearest_coast_km(
             if (
                 len(
                     point1
-                ) < 2
+                )
+                <
+                2
 
                 or
 
                 len(
                     point2
-                ) < 2
+                )
+                <
+                2
             ):
 
                 continue
@@ -2200,6 +3219,7 @@ def attach_distance_to_coast(
     for row in unique_grid.itertuples(
         index=False
     ):
+
 
         distance_km = (
             distance_to_nearest_coast_km(
@@ -2464,7 +3484,7 @@ def range_score(
 
 
 # ============================================================
-# HSI V1.3 STEP 2
+# HSI — V1.4 STEP 1
 # ============================================================
 
 def calculate_hsi(
@@ -2546,14 +3566,14 @@ def calculate_hsi(
 
     # IMPORTANT:
     #
-    # Bathymetry and distance from coast
-    # remain OUTSIDE the HSI.
+    # Bathymetry, coast distance and oxycline
+    # depth remain OUTSIDE the HSI.
     #
-    # Current HSI:
+    # Current temporary HSI:
     #
     # Temperature = 1/3
     # Salinity = 1/3
-    # Oxygen = 1/3
+    # Surface oxygen = 1/3
 
     df[
         "hsi"
@@ -2581,9 +3601,11 @@ def calculate_hsi(
     df[
         "hsi"
     ] = (
+
         df[
             "hsi"
         ]
+
         .clip(
             0,
             1
@@ -2621,7 +3643,7 @@ def hsi_class(
 
 
 # ============================================================
-# HABITAT CENTRE
+# HABITAT CENTROID
 # ============================================================
 
 def habitat_centroid(
@@ -2710,6 +3732,7 @@ def habitat_centroid(
         float(
             latitude
         ),
+
         float(
             longitude
         )
@@ -3065,7 +4088,7 @@ try:
 
     with st.status(
 
-        "Loading E-AWARE V1.3 Step 2 environmental data...",
+        "Loading E-AWARE V1.4 Step 1 environmental data...",
 
         expanded=True
 
@@ -3108,7 +4131,7 @@ try:
 
 
         status.write(
-            "🌡️ 1/6 Downloading temperature..."
+            "🌡️ 1/7 Downloading temperature..."
         )
 
 
@@ -3129,7 +4152,7 @@ try:
 
 
         status.write(
-            "🧂 2/6 Downloading salinity..."
+            "🧂 2/7 Downloading salinity..."
         )
 
 
@@ -3150,7 +4173,7 @@ try:
 
 
         status.write(
-            "🌊 3/6 Downloading SST anomaly..."
+            "🌊 3/7 Downloading SST anomaly..."
         )
 
 
@@ -3171,12 +4194,13 @@ try:
 
 
         status.write(
-            "🫧 4/6 Downloading dissolved oxygen..."
+            "🫧 4/7 Downloading full "
+            "3D dissolved-oxygen profile..."
         )
 
 
-        oxygen_data = (
-            load_oxygen(
+        oxygen_profile_data = (
+            load_oxygen_profile(
 
                 selected_date,
 
@@ -3185,9 +4209,25 @@ try:
         )
 
 
+        oxygen_data = (
+            surface_oxygen_from_profile(
+                oxygen_profile_data
+            )
+        )
+
+
+        oxycline_data = (
+            calculate_oxycline_table(
+                oxygen_profile_data
+            )
+        )
+
+
         status.write(
-            f"✅ Oxygen loaded "
-            f"({len(oxygen_data)} records)"
+
+            f"✅ Oxygen profile loaded "
+            f"({len(oxygen_profile_data)} depth records; "
+            f"{len(oxycline_data)} grid-cell/day profiles)"
         )
 
 
@@ -3219,7 +4259,7 @@ try:
 
 
         status.write(
-            "🗻 5/6 Retrieving GEBCO_2026 bathymetry..."
+            "🗻 5/7 Retrieving GEBCO_2026 bathymetry..."
         )
 
 
@@ -3237,7 +4277,7 @@ try:
 
 
         status.write(
-            "📏 6/6 Calculating distance "
+            "📏 6/7 Calculating distance "
             "to nearest coastline..."
         )
 
@@ -3251,14 +4291,50 @@ try:
 
         status.write(
             "✅ Coast distance stored in "
-            "kilometres and nautical miles"
+            "km and nautical miles"
+        )
+
+
+        status.write(
+            "🫧 7/7 Mapping 1 mL/L "
+            "oxycline depth to E-AWARE grid..."
+        )
+
+
+        ocean = (
+            attach_nearest_oxycline(
+
+                ocean,
+
+                oxycline_data
+            )
+        )
+
+
+        valid_oxyclines = int(
+
+            ocean[
+                "oxycline_depth_m"
+            ]
+
+            .notna()
+
+            .sum()
+        )
+
+
+        status.write(
+
+            f"✅ Oxycline mapping complete "
+            f"({valid_oxyclines} mapped cells "
+            f"with a detected crossing)"
         )
 
 
         status.update(
 
             label=
-                "✅ E-AWARE V1.3 Step 2 "
+                "✅ E-AWARE V1.4 Step 1 "
                 "environmental data loaded",
 
             state=
@@ -3272,7 +4348,7 @@ try:
 except Exception as error:
 
     st.error(
-        "❌ E-AWARE V1.3 Step 2 could not "
+        "❌ E-AWARE V1.4 Step 1 could not "
         "load all environmental data."
     )
 
@@ -3475,6 +4551,7 @@ context2.metric(
     "SST Anomaly",
 
     (
+
         f"{best['sst_anomaly']:+.2f} °C"
 
         if pd.notna(
@@ -3508,9 +4585,10 @@ context4.metric(
 
 
 st.caption(
-    "V1.3 Step 2 stores distance from the nearest "
-    "coastline in both kilometres and nautical miles. "
-    "Distance from coast is still not included in the HSI."
+    "V1.4 Step 1 keeps the established V1.3 dashboard "
+    "unchanged while adding a calculated oxycline-depth "
+    "field for validation. Oxycline depth is not yet "
+    "included in the HSI weighting."
 )
 
 
@@ -4391,6 +5469,261 @@ st.dataframe(
 
 
 # ============================================================
+# V1.4 STEP 1 — OXYCLINE VALIDATION
+# ============================================================
+
+st.subheader(
+    "🫧 V1.4 Step 1 — Oxycline Depth Validation"
+)
+
+
+best_oxycline_available = pd.notna(
+
+    best.get(
+        "oxycline_depth_m",
+        np.nan
+    )
+)
+
+
+if best_oxycline_available:
+
+    best_oxycline_text = (
+
+        f"{best['oxycline_depth_m']:.1f} m"
+    )
+
+else:
+
+    best_oxycline_text = (
+        "Not detected"
+    )
+
+
+oxycline1, oxycline2, oxycline3, oxycline4 = (
+    st.columns(
+        4
+    )
+)
+
+
+oxycline1.metric(
+
+    "Highest-HSI Oxycline Depth",
+
+    best_oxycline_text
+)
+
+
+oxycline2.metric(
+
+    "Oxycline Threshold",
+
+    f"{OXYCLINE_THRESHOLD_ML_L:.1f} mL/L O₂"
+)
+
+
+oxycline3.metric(
+    "Source",
+    "Copernicus BGC 3D"
+)
+
+
+oxycline4.metric(
+    "HSI Weight",
+    "Not included"
+)
+
+
+st.info(
+    "V1.4 Step 1 defines oxycline depth as the first "
+    "depth where the vertical dissolved-oxygen profile "
+    "crosses 1 mL/L. When the threshold falls between "
+    "two Copernicus model levels, E-AWARE estimates "
+    "the crossing depth using linear interpolation. "
+    "If the threshold is not reached within the available "
+    "water column, the oxycline is reported as not detected "
+    "rather than inventing a depth."
+)
+
+
+oxycline_validation = current_data[
+    [
+        "lat",
+        "lon",
+        "hsi",
+        "oxygen_ml_l",
+        "oxycline_depth_m",
+        "oxycline_source_distance_km",
+        "oxycline_profile_max_depth_m",
+        "oxycline_profile_levels",
+        "oxycline_status"
+    ]
+].copy()
+
+
+oxycline_validation[
+    "lat"
+] = (
+    oxycline_validation[
+        "lat"
+    ]
+    .round(
+        4
+    )
+)
+
+
+oxycline_validation[
+    "lon"
+] = (
+    oxycline_validation[
+        "lon"
+    ]
+    .round(
+        4
+    )
+)
+
+
+oxycline_validation[
+    "hsi"
+] = (
+    oxycline_validation[
+        "hsi"
+    ]
+    .round(
+        2
+    )
+)
+
+
+oxycline_validation[
+    "oxygen_ml_l"
+] = (
+    oxycline_validation[
+        "oxygen_ml_l"
+    ]
+    .round(
+        2
+    )
+)
+
+
+oxycline_validation[
+    "oxycline_depth_m"
+] = (
+    oxycline_validation[
+        "oxycline_depth_m"
+    ]
+    .round(
+        1
+    )
+)
+
+
+oxycline_validation[
+    "oxycline_source_distance_km"
+] = (
+    oxycline_validation[
+        "oxycline_source_distance_km"
+    ]
+    .round(
+        2
+    )
+)
+
+
+oxycline_validation[
+    "oxycline_profile_max_depth_m"
+] = (
+    oxycline_validation[
+        "oxycline_profile_max_depth_m"
+    ]
+    .round(
+        0
+    )
+)
+
+
+oxycline_validation[
+    "oxycline_profile_levels"
+] = (
+    oxycline_validation[
+        "oxycline_profile_levels"
+    ]
+    .round(
+        0
+    )
+)
+
+
+oxycline_validation = (
+    oxycline_validation.rename(
+
+        columns={
+
+            "lat":
+                "Latitude",
+
+            "lon":
+                "Longitude",
+
+            "hsi":
+                "HSI",
+
+            "oxygen_ml_l":
+                "Surface O₂ (mL/L)",
+
+            "oxycline_depth_m":
+                "Oxycline Depth (m)",
+
+            "oxycline_source_distance_km":
+                "BGC Source Distance (km)",
+
+            "oxycline_profile_max_depth_m":
+                "Profile Max Depth (m)",
+
+            "oxycline_profile_levels":
+                "Profile Levels",
+
+            "oxycline_status":
+                "Oxycline Status"
+        }
+    )
+)
+
+
+st.dataframe(
+
+    oxycline_validation,
+
+    use_container_width=True,
+
+    hide_index=True
+)
+
+
+if (
+    current_data[
+        "oxycline_depth_m"
+    ]
+    .notna()
+    .sum()
+    ==
+    0
+):
+
+    st.warning(
+        "The 1 mL/L threshold was not detected "
+        "in the mapped Copernicus oxygen profiles "
+        "for the current date. This is a valid "
+        "model result and should not be replaced "
+        "by an assumed oxycline depth."
+    )
+
+
+# ============================================================
 # HABITAT REFERENCE
 # ============================================================
 
@@ -4448,11 +5781,11 @@ reference4.metric(
 
 
 st.warning(
-    "V1.3 Step 2 still calculates HSI only from "
+    "V1.4 Step 1 still calculates HSI only from "
     "temperature, salinity and surface dissolved oxygen. "
-    "Bathymetry and distance from coast are stored as "
-    "spatial predictors but are not yet assigned fixed "
-    "suitability weights."
+    "Bathymetry, distance from coast and oxycline depth "
+    "are stored as additional predictors but are not yet "
+    "assigned fixed suitability weights."
 )
 
 
@@ -4466,6 +5799,7 @@ forecast_results = []
 
 
 for forecast_date in available_dates:
+
 
     forecast_frame = ocean[
 
@@ -4519,10 +5853,12 @@ for forecast_date in available_dates:
 
 
     centre_coast_km = None
+
     centre_coast_nm = None
 
 
     if centre is not None:
+
 
         centre_coast_km = (
             distance_to_nearest_coast_km(
@@ -4807,12 +6143,14 @@ coastal_interpretation = (
 
 
 start = None
+
 end = None
 
 
 if len(
     forecast_centres
 ) >= 2:
+
 
     start = (
         forecast_centres[
@@ -4971,6 +6309,7 @@ if len(
                 bearing
             )
         )
+
 
     else:
 
@@ -5178,9 +6517,12 @@ st.markdown(
 
 if (
     start is not None
+
     and
+
     end is not None
 ):
+
 
     shift_path_data = [
 
@@ -5645,9 +6987,9 @@ st.text_area(
 
 
 st.caption(
-    "Distance from coast is now shown in the "
-    "fisher-facing preview, but it still does "
-    "not contribute to the HSI score."
+    "V1.4 Step 1 keeps oxycline depth out of "
+    "the fisher-facing SMS while the new vertical "
+    "oxygen calculation is being validated."
 )
 
 
@@ -5690,10 +7032,23 @@ source_table = pd.DataFrame(
                 "Copernicus Marine Biogeochemistry",
 
             "Status":
-                "Analysis / forecast",
+                "3D analysis / forecast",
 
             "Use":
-                "Surface dissolved oxygen"
+                "Surface dissolved oxygen and "
+                "vertical oxygen profiles"
+        },
+
+        {
+            "Source":
+                "Copernicus Marine Biogeochemistry",
+
+            "Status":
+                "Derived predictor",
+
+            "Use":
+                "1 mL/L oxycline depth by "
+                "vertical interpolation"
         },
 
         {
@@ -5704,7 +7059,8 @@ source_table = pd.DataFrame(
                 "Static terrain model",
 
             "Use":
-                "Bathymetry / water depth and land filtering"
+                "Bathymetry / water depth "
+                "and land filtering"
         },
 
         {
@@ -5738,8 +7094,9 @@ source_table = pd.DataFrame(
                 "Scientific reference",
 
             "Use":
-                "Supports bathymetry and distance "
-                "from coast as habitat predictors"
+                "Supports bathymetry, coast distance "
+                "and 1 mL/L oxycline depth "
+                "as habitat predictors"
         },
 
         {
@@ -5782,7 +7139,7 @@ st.dataframe(
 # ============================================================
 
 st.subheader(
-    "🧪 V1.3 Step 2 Model Status"
+    "🧪 V1.4 Step 1 Model Status"
 )
 
 
@@ -5794,19 +7151,18 @@ status1, status2 = (
 
 
 status1.success(
-    "Distance from coast is now stored in both "
-    "kilometres and nautical miles, shown on the "
-    "dashboard, mapped spatially, and used to "
-    "describe coastal/offshore habitat-centre movement."
+    "V1.4 Step 1 now retrieves the full vertical "
+    "Copernicus dissolved-oxygen profile and estimates "
+    "the 1 mL/L oxycline depth using linear interpolation "
+    "between model levels."
 )
 
 
 status2.warning(
-    "Distance from coast is still not weighted in "
-    "the HSI. A fixed suitability relationship will "
-    "not be introduced until it can be supported "
-    "through historical anchoveta observations or "
-    "a defensible model."
+    "Oxycline depth is currently a validation predictor "
+    "only. It is not yet included in the HSI, map, "
+    "forecast guidance or SMS until its behaviour is "
+    "checked against the project study area."
 )
 
 
@@ -5815,7 +7171,7 @@ status2.warning(
 # ============================================================
 
 with st.expander(
-    "⚙️ MVP V1.3 Step 2 Limitations"
+    "⚙️ MVP V1.4 Step 1 Limitations"
 ):
 
     st.markdown(
@@ -5831,59 +7187,75 @@ with st.expander(
 - SST anomaly
 - GEBCO bathymetry / water depth
 - Distance from nearest coastline
+- Oxycline depth at 1 mL/L O₂
 - Season
+
+### Oxycline calculation
+
+V1.4 Step 1 downloads the full vertical dissolved-oxygen
+profile from the Copernicus Marine biogeochemistry product.
+
+The oxycline is defined as the first downward crossing of:
+
+**1 mL/L O₂**
+
+If the threshold lies between two Copernicus model depth
+levels, E-AWARE estimates the crossing depth using linear
+interpolation.
+
+If the 1 mL/L threshold is not reached anywhere in the
+available model water column, E-AWARE reports the oxycline
+as unavailable rather than assigning an assumed value.
+
+### Oxygen-grid limitation
+
+The Copernicus biogeochemistry product has a coarser
+horizontal grid than the physics product.
+
+Surface oxygen and oxycline depth are therefore mapped
+from the nearest BGC grid location to each E-AWARE
+physics-grid cell.
+
+This means multiple E-AWARE physics cells can share the
+same underlying oxygen profile and oxycline estimate.
+
+### HSI treatment
+
+Oxycline depth is not included in the HSI during
+V1.4 Step 1.
+
+The current temporary HSI remains:
+
+**Temperature + Salinity + Surface Oxygen**
+
+with equal weights.
+
+### Bathymetry
+
+GEBCO bathymetry remains an additional spatial predictor
+and is not assigned a fixed HSI score.
 
 ### Distance from coast
 
-E-AWARE calculates the shortest distance between each
-retained ocean grid coordinate and the nearest local
-NOAA coastline segment.
-
-The value is stored in both:
-
-- **kilometres**
-- **nautical miles**, using **1 nautical mile = 1.852 km**
-
-Distance from coast remains a spatial predictor only
-and is not yet included in the HSI weighting.
+Distance from coast remains an additional spatial predictor
+and is not assigned a fixed HSI score.
 
 ### Coastal/offshore shift
 
-The app calculates the distance from the coastline for
-the current predicted habitat centre and the +72 h
-habitat centre.
-
-It then reports whether the predicted habitat centre
-becomes closer to the coastline or farther offshore.
+The app continues to compare the coastline distance of the
+current predicted habitat centre with the +72 h habitat
+centre.
 
 This describes movement of predicted suitable habitat,
-not direct movement of individual anchoveta schools.
-
-### Distance calculation limitation
-
-The point-to-segment calculation uses a local
-latitude/longitude-to-kilometre approximation.
-
-This is suitable for the small project study area but
-is not intended for navigation or survey-grade positioning.
-
-### Bathymetry treatment
-
-GEBCO bathymetry remains a contextual predictor and
-is not assigned a hand-built HSI score.
-
-### Oxygen limitation
-
-The Copernicus biogeochemistry oxygen product is
-coarser than the physics grid.
-
-Each physics cell is therefore mapped to the nearest
-available oxygen grid cell for the same day.
+not the movement of individual fish schools.
 
 ### Still not integrated
 
+- Oxycline-depth HSI weighting
+- Oxycline map layer
+- Oxycline fisher-facing guidance
 - Distance-from-coast HSI weighting
-- Oxycline depth
+- Bathymetry HSI weighting
 - Chlorophyll
 - Ocean currents in the HSI
 - Historical IMARPE anchoveta observations
@@ -5901,7 +7273,7 @@ st.divider()
 
 
 st.caption(
-    "E-AWARE MVP V1.3 Step 2 | "
+    "E-AWARE MVP V1.4 Step 1 | "
     "El Niño Adaptive Fisheries Intelligence | "
     "Decision-support research prototype"
 )
@@ -5910,7 +7282,7 @@ st.caption(
 st.caption(
     "Habitat suitability is a model estimate. "
     "It is not confirmed fish location, catch advice, "
-    "or a legal fishing instruction. Bathymetry and "
-    "coast-distance outputs must not be used for "
-    "navigation or safety at sea."
+    "or a legal fishing instruction. Bathymetry, "
+    "coast-distance and oxycline outputs must not "
+    "be used for navigation or safety at sea."
 )
