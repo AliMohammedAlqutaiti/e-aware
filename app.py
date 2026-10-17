@@ -12,108 +12,46 @@ import pydeck as pdk
 import streamlit as st
 import xarray as xr
 
-
 # ============================================================
 # PAGE / STUDY AREA
 # ============================================================
 
-st.set_page_config(
-    page_title="E-AWARE",
-    page_icon="🐟",
-    layout="wide"
-)
-
+st.set_page_config(page_title="E-AWARE", page_icon="🐟", layout="wide")
 st.title("🐟 E-AWARE")
-
-st.caption(
-    "El Niño Adaptive Fisheries Intelligence — MVP V1.4 Step 3"
-)
-
+st.caption("El Niño Adaptive Fisheries Intelligence — MVP V1.5")
 st.info(
-    "E-AWARE estimates suitable anchoveta habitat from "
-    "environmental conditions. It does not show the exact "
-    "location or swimming direction of individual fish schools."
+    "E-AWARE estimates suitable anchoveta habitat from environmental conditions. "
+    "It does not show the exact location or swimming direction of individual fish schools."
 )
 
+MIN_LON, MAX_LON = -81.50, -81.20
+MIN_LAT, MAX_LAT = -4.60, -4.36
 
-MIN_LON = -81.50
-MAX_LON = -81.20
+COMMUNITIES = pd.DataFrame([
+    {"name": "Lobitos", "lat": -4.4567, "lon": -81.2849},
+    {"name": "Siches", "lat": -4.4890, "lon": -81.2680},
+    {"name": "Piedritas", "lat": -4.5190, "lon": -81.2630},
+])
 
-MIN_LAT = -4.60
-MAX_LAT = -4.36
+TEMPERATURE_DATASET = "cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m"
+SALINITY_DATASET = "cmems_mod_glo_phy-so_anfc_0.083deg_P1D-m"
+SST_ANOMALY_DATASET = "cmems_mod_glo_phy_anfc_0.083deg-sst-anomaly_P1D-m"
+OXYGEN_DATASET = "cmems_mod_glo_bgc-bio_anfc_0.25deg_P1D-m"
 
-
-COMMUNITIES = pd.DataFrame(
-    [
-        {
-            "name": "Lobitos",
-            "lat": -4.4567,
-            "lon": -81.2849
-        },
-        {
-            "name": "Siches",
-            "lat": -4.4890,
-            "lon": -81.2680
-        },
-        {
-            "name": "Piedritas",
-            "lat": -4.5190,
-            "lon": -81.2630
-        }
-    ]
-)
-
-
-# ============================================================
-# DATA SOURCES
-# ============================================================
-
-TEMPERATURE_DATASET = (
-    "cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m"
-)
-
-SALINITY_DATASET = (
-    "cmems_mod_glo_phy-so_anfc_0.083deg_P1D-m"
-)
-
-SST_ANOMALY_DATASET = (
-    "cmems_mod_glo_phy_anfc_0.083deg-sst-anomaly_P1D-m"
-)
-
-OXYGEN_DATASET = (
-    "cmems_mod_glo_bgc-bio_anfc_0.25deg_P1D-m"
-)
-
-
-GEBCO_API_URL = (
-    "https://api.odb.ntu.edu.tw/gebco"
-)
-
-
+GEBCO_API_URL = "https://api.odb.ntu.edu.tw/gebco"
 NOAA_COASTLINE_QUERY_URL = (
-    "https://gis.ngdc.noaa.gov/"
-    "arcgis/rest/services/"
-    "EMAG2v3/MapServer/1/query"
+    "https://gis.ngdc.noaa.gov/arcgis/rest/services/EMAG2v3/MapServer/1/query"
 )
-
-
-BASEMAP_URL = (
-    "https://basemaps.cartocdn.com/"
-    "gl/positron-gl-style/style.json"
-)
-
+BASEMAP_URL = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
 
 COASTLINE_QUERY_MARGIN_DEG = 0.75
-
 KM_PER_NAUTICAL_MILE = 1.852
-
 OXYGEN_MMOL_M3_TO_ML_L = 0.0223916
-
 OXYCLINE_THRESHOLD_ML_L = 1.0
 
 
 # ============================================================
-# COPERNICUS CREDENTIALS
+# COPERNICUS HELPERS
 # ============================================================
 
 def get_credentials():
@@ -137,10 +75,6 @@ def get_credentials():
 
     return username, password
 
-
-# ============================================================
-# PREPARE STANDARD COPERNICUS DATA
-# ============================================================
 
 def prepare_dataframe(
     dataframe,
@@ -283,10 +217,6 @@ def prepare_dataframe(
     ]
 
 
-# ============================================================
-# FILE HELPER
-# ============================================================
-
 def resolve_downloaded_file(
     response,
     temp_dir,
@@ -343,7 +273,7 @@ def resolve_downloaded_file(
 
 
 # ============================================================
-# DOWNLOAD STANDARD COPERNICUS SUBSET
+# STANDARD COPERNICUS SUBSET
 # ============================================================
 
 def download_subset(
@@ -501,10 +431,6 @@ def download_subset(
         output_name
     )
 
-
-# ============================================================
-# STANDARD COPERNICUS LOADERS
-# ============================================================
 
 @st.cache_data(
     ttl=1800,
@@ -883,10 +809,6 @@ def load_oxygen_profile(
     ]
 
 
-# ============================================================
-# SURFACE OXYGEN FROM 3D PROFILE
-# ============================================================
-
 def surface_oxygen_from_profile(
     profile
 ):
@@ -930,7 +852,7 @@ def surface_oxygen_from_profile(
 
 
 # ============================================================
-# OXYCLINE CROSSING CALCULATION
+# OXYCLINE CROSSING
 # ============================================================
 
 def estimate_oxycline_depth(
@@ -1130,7 +1052,7 @@ def estimate_oxycline_depth(
 
 
 # ============================================================
-# MERGE PHYSICS DATA
+# MERGE / NEAREST SOURCE
 # ============================================================
 
 def merge_physics_data(
@@ -1185,17 +1107,12 @@ def merge_physics_data(
     if merged.empty:
 
         raise RuntimeError(
-            "No matching physics grid "
-            "cells were found."
+            "No matching physics grid cells were found."
         )
 
 
     return merged
 
-
-# ============================================================
-# NEAREST GRID SOURCE
-# ============================================================
 
 def nearest_source_indices(
     target_rows,
@@ -1344,10 +1261,6 @@ def nearest_source_indices(
     )
 
 
-# ============================================================
-# ATTACH SURFACE OXYGEN
-# ============================================================
-
 def attach_nearest_oxygen(
     physics,
     oxygen
@@ -1489,7 +1402,7 @@ def attach_nearest_oxygen(
 
 
 # ============================================================
-# GEBCO JSON HELPERS
+# GEBCO
 # ============================================================
 
 def first_numeric(
@@ -1781,10 +1694,6 @@ def validate_elevation(
     return value
 
 
-# ============================================================
-# SINGLE GEBCO POINT
-# ============================================================
-
 @st.cache_data(
     ttl=86400,
     show_spinner=False
@@ -1816,7 +1725,7 @@ def get_gebco_elevation(
                 "application/json",
 
             "User-Agent":
-                "E-AWARE/1.4 academic prototype"
+                "E-AWARE/1.5 academic prototype"
         },
 
         timeout=30
@@ -1860,10 +1769,6 @@ def get_gebco_elevation(
         z_value
     )
 
-
-# ============================================================
-# BATCH GEBCO
-# ============================================================
 
 @st.cache_data(
     ttl=86400,
@@ -1931,7 +1836,7 @@ def get_gebco_batch(
                     "application/json",
 
                 "User-Agent":
-                    "E-AWARE/1.4 academic prototype"
+                    "E-AWARE/1.5 academic prototype"
             },
 
             timeout=40
@@ -2002,10 +1907,6 @@ def get_gebco_batch(
         for lat, lon in points
     ]
 
-
-# ============================================================
-# ATTACH GEBCO BATHYMETRY
-# ============================================================
 
 def attach_gebco_bathymetry(
     dataframe
@@ -2173,7 +2074,7 @@ def attach_gebco_bathymetry(
 
 
 # ============================================================
-# V1.4 STEP 3 — SEABED-CONSTRAINED OXYCLINE
+# V1.4 SEABED-CONSTRAINED OXYCLINE
 # ============================================================
 
 def attach_seabed_constrained_oxycline(
@@ -2186,64 +2087,51 @@ def attach_seabed_constrained_oxycline(
     )
 
 
-    result[
-        "raw_oxycline_depth_m"
-    ] = np.nan
+    columns = {
+
+        "raw_oxycline_depth_m":
+            np.nan,
+
+        "raw_oxycline_status":
+            None,
+
+        "oxycline_depth_m":
+            np.nan,
+
+        "oxycline_validation_status":
+            None,
+
+        "oxycline_source_distance_km":
+            np.nan,
+
+        "oxycline_source_lat":
+            np.nan,
+
+        "oxycline_source_lon":
+            np.nan,
+
+        "bgc_profile_max_depth_m":
+            np.nan,
+
+        "bgc_profile_levels":
+            np.nan,
+
+        "local_profile_max_depth_m":
+            np.nan,
+
+        "local_profile_levels":
+            np.nan,
+
+        "local_depth_gap_m":
+            np.nan
+    }
 
 
-    result[
-        "raw_oxycline_status"
-    ] = None
+    for column, default in columns.items():
 
-
-    result[
-        "oxycline_depth_m"
-    ] = np.nan
-
-
-    result[
-        "oxycline_validation_status"
-    ] = None
-
-
-    result[
-        "oxycline_source_distance_km"
-    ] = np.nan
-
-
-    result[
-        "oxycline_source_lat"
-    ] = np.nan
-
-
-    result[
-        "oxycline_source_lon"
-    ] = np.nan
-
-
-    result[
-        "bgc_profile_max_depth_m"
-    ] = np.nan
-
-
-    result[
-        "bgc_profile_levels"
-    ] = np.nan
-
-
-    result[
-        "local_profile_max_depth_m"
-    ] = np.nan
-
-
-    result[
-        "local_profile_levels"
-    ] = np.nan
-
-
-    result[
-        "local_depth_gap_m"
-    ] = np.nan
+        result[
+            column
+        ] = default
 
 
     for target_date in sorted(
@@ -2451,14 +2339,6 @@ def attach_seabed_constrained_oxycline(
             )
 
 
-            # =================================================
-            # THIS IS THE MAIN STEP 3 CHANGE:
-            #
-            # Remove every BGC level deeper than
-            # the local GEBCO seabed BEFORE
-            # calculating the local oxycline.
-            # =================================================
-
             local_profile = profile[
 
                 profile[
@@ -2547,8 +2427,7 @@ def attach_seabed_constrained_oxycline(
                     "oxycline_validation_status"
                 ] = (
                     "No BGC depth levels fall "
-                    "within the local GEBCO "
-                    "water column"
+                    "within the local GEBCO water column"
                 )
 
                 continue
@@ -2657,10 +2536,8 @@ def attach_seabed_constrained_oxycline(
                         "1 mL/L threshold not reached "
                         "in valid BGC levels within the "
                         f"local {local_water_depth:.1f} m "
-                        "water column "
-                        "(deepest usable BGC level: "
-                        f"{local_max_depth:.1f} m); "
-                        "raw full-profile crossing occurs "
+                        "water column; "
+                        f"raw full-profile crossing occurs "
                         f"at {float(raw_depth):.1f} m"
                     )
 
@@ -2676,9 +2553,7 @@ def attach_seabed_constrained_oxycline(
                         "1 mL/L threshold not reached "
                         "in valid BGC levels within the "
                         f"local {local_water_depth:.1f} m "
-                        "water column "
-                        "(deepest usable BGC level: "
-                        f"{local_max_depth:.1f} m)"
+                        "water column"
                     )
 
 
@@ -2767,7 +2642,7 @@ def load_noaa_coastline_lines():
             "application/json",
 
         "User-Agent":
-            "E-AWARE/1.4 academic prototype"
+            "E-AWARE/1.5 academic prototype"
     }
 
 
@@ -2942,7 +2817,7 @@ def load_noaa_coastline_lines():
 
 
 # ============================================================
-# POINT TO COASTLINE SEGMENT
+# COAST DISTANCE
 # ============================================================
 
 def point_to_segment_distance_km(
@@ -3103,10 +2978,6 @@ def point_to_segment_distance_km(
     )
 
 
-# ============================================================
-# DISTANCE TO NEAREST COAST
-# ============================================================
-
 def distance_to_nearest_coast_km(
     lat,
     lon,
@@ -3239,10 +3110,6 @@ def distance_to_nearest_coast_km(
         minimum_distance
     )
 
-
-# ============================================================
-# ATTACH DISTANCE FROM COAST
-# ============================================================
 
 def attach_distance_to_coast(
     dataframe
@@ -3379,7 +3246,146 @@ def attach_distance_to_coast(
 
 
 # ============================================================
-# HABITAT REFERENCE
+# V1.5 TEMPORAL / SEASONAL FEATURES
+# ============================================================
+
+def austral_season(
+    month
+):
+
+    if month in [
+        12,
+        1,
+        2
+    ]:
+
+        return "Summer"
+
+
+    if month in [
+        3,
+        4,
+        5
+    ]:
+
+        return "Autumn"
+
+
+    if month in [
+        6,
+        7,
+        8
+    ]:
+
+        return "Winter"
+
+
+    return "Spring"
+
+
+def add_temporal_features(
+    dataframe
+):
+
+    df = (
+        dataframe.copy()
+    )
+
+
+    dates = pd.to_datetime(
+        df[
+            "date"
+        ]
+    )
+
+
+    month = (
+        dates
+        .dt.month
+        .astype(
+            int
+        )
+    )
+
+
+    angle = (
+
+        2.0
+        *
+        np.pi
+        *
+        (
+            month
+            -
+            1
+        )
+        /
+        12.0
+    )
+
+
+    df[
+        "month_number"
+    ] = month
+
+
+    df[
+        "month_name"
+    ] = (
+        dates
+        .dt.month_name()
+    )
+
+
+    df[
+        "austral_season"
+    ] = (
+        month.apply(
+            austral_season
+        )
+    )
+
+
+    df[
+        "month_sin"
+    ] = np.sin(
+        angle
+    )
+
+
+    df[
+        "month_cos"
+    ] = np.cos(
+        angle
+    )
+
+
+    df[
+        "season_reference_type"
+    ] = np.where(
+
+        month.isin(
+            [
+                12,
+                1,
+                2,
+                6,
+                7,
+                8
+            ]
+        ),
+
+        "Direct summer/winter reference",
+
+        "Transition-season envelope"
+    )
+
+
+    return df
+
+
+# ============================================================
+# HABITAT / HSI
 # ============================================================
 
 def habitat_reference(
@@ -3396,6 +3402,9 @@ def habitat_reference(
 
             "season":
                 "Summer",
+
+            "reference_basis":
+                "Published summer range",
 
             "temp_min":
                 17.6,
@@ -3428,6 +3437,9 @@ def habitat_reference(
             "season":
                 "Winter",
 
+            "reference_basis":
+                "Published winter range",
+
             "temp_min":
                 14.5,
 
@@ -3448,10 +3460,29 @@ def habitat_reference(
         }
 
 
+    season_name = (
+
+        "Autumn (Transition)"
+
+        if month in [
+            3,
+            4,
+            5
+        ]
+
+        else
+
+        "Spring (Transition)"
+    )
+
+
     return {
 
         "season":
-            "Transition (MVP)",
+            season_name,
+
+        "reference_basis":
+            "Transition envelope — no invented seasonal threshold",
 
         "temp_min":
             14.5,
@@ -3472,10 +3503,6 @@ def habitat_reference(
             8.7
     }
 
-
-# ============================================================
-# RANGE SCORE
-# ============================================================
 
 def range_score(
     values,
@@ -3559,10 +3586,6 @@ def range_score(
     )
 
 
-# ============================================================
-# HSI
-# ============================================================
-
 def calculate_hsi(
     dataframe,
     month
@@ -3640,8 +3663,6 @@ def calculate_hsi(
     )
 
 
-    # Oxycline remains outside the HSI.
-
     df[
         "hsi"
     ] = (
@@ -3681,10 +3702,6 @@ def calculate_hsi(
     return df
 
 
-# ============================================================
-# HSI CLASS
-# ============================================================
-
 def hsi_class(
     value
 ):
@@ -3706,10 +3723,6 @@ def hsi_class(
 
     return "Low"
 
-
-# ============================================================
-# HABITAT CENTRE
-# ============================================================
 
 def habitat_centroid(
     dataframe
@@ -3804,7 +3817,7 @@ def habitat_centroid(
 
 
 # ============================================================
-# MOVEMENT FUNCTIONS
+# MOVEMENT
 # ============================================================
 
 def haversine(
@@ -4146,7 +4159,7 @@ try:
 
     with st.status(
 
-        "Loading E-AWARE V1.4 Step 3 environmental data...",
+        "Loading E-AWARE V1.5 environmental data...",
 
         expanded=True
 
@@ -4229,8 +4242,7 @@ try:
 
 
         status.write(
-            "🫧 4/7 Downloading full "
-            "3D oxygen profile..."
+            "🫧 4/7 Downloading full 3D oxygen profile..."
         )
 
 
@@ -4286,8 +4298,7 @@ try:
 
 
         status.write(
-            "📏 6/7 Calculating distance "
-            "from coast..."
+            "📏 6/7 Calculating distance from coast..."
         )
 
 
@@ -4299,8 +4310,7 @@ try:
 
 
         status.write(
-            "🫧 7/7 Calculating "
-            "seabed-constrained oxycline..."
+            "🫧 7/7 Calculating seabed-constrained oxycline..."
         )
 
 
@@ -4310,6 +4320,18 @@ try:
                 ocean,
 
                 oxygen_profile_data
+            )
+        )
+
+
+        status.write(
+            "🗓️ Adding V1.5 month and austral-season predictors..."
+        )
+
+
+        ocean = (
+            add_temporal_features(
+                ocean
             )
         )
 
@@ -4328,17 +4350,16 @@ try:
 
         status.write(
 
-            f"✅ Local oxycline calculation complete. "
-            f"{accepted} mapped cells currently contain "
-            f"a valid 1 mL/L crossing above the seabed."
+            f"✅ Oxycline calculation complete. "
+            f"{accepted} mapped cells currently "
+            f"contain a valid 1 mL/L crossing."
         )
 
 
         status.update(
 
             label=
-                "✅ E-AWARE V1.4 Step 3 "
-                "environmental data loaded",
+                "✅ E-AWARE V1.5 environmental data loaded",
 
             state=
                 "complete",
@@ -4351,13 +4372,8 @@ try:
 except Exception as error:
 
     st.error(
-        "❌ E-AWARE V1.4 Step 3 could "
-        "not load all environmental data."
-    )
-
-
-    st.write(
-        "Technical error:"
+        "❌ E-AWARE V1.5 could not "
+        "load all environmental data."
     )
 
 
@@ -4442,8 +4458,8 @@ current_data = (
 if current_data.empty:
 
     st.error(
-        "No complete environmental grid "
-        "cells are available for the selected date."
+        "No complete environmental grid cells "
+        "are available for the selected date."
     )
 
     st.stop()
@@ -4587,11 +4603,105 @@ context4.metric(
 )
 
 
+# ============================================================
+# V1.5 TEMPORAL / SEASONAL PREDICTOR
+# ============================================================
+
+st.subheader(
+    "🗓️ V1.5 — Temporal / Seasonal Predictor"
+)
+
+
+current_month_number = int(
+    best[
+        "month_number"
+    ]
+)
+
+
+current_month_name = str(
+    best[
+        "month_name"
+    ]
+)
+
+
+current_austral_season = str(
+    best[
+        "austral_season"
+    ]
+)
+
+
+current_month_sin = float(
+    best[
+        "month_sin"
+    ]
+)
+
+
+current_month_cos = float(
+    best[
+        "month_cos"
+    ]
+)
+
+
+time1, time2, time3, time4, time5 = (
+    st.columns(
+        5
+    )
+)
+
+
+time1.metric(
+    "Month",
+    (
+        f"{current_month_name} "
+        f"({current_month_number})"
+    )
+)
+
+
+time2.metric(
+    "Austral Season",
+    current_austral_season
+)
+
+
+time3.metric(
+    "Month sin",
+    f"{current_month_sin:.3f}"
+)
+
+
+time4.metric(
+    "Month cos",
+    f"{current_month_cos:.3f}"
+)
+
+
+time5.metric(
+    "HSI Weight",
+    "Not included"
+)
+
+
+st.info(
+    "Month is now stored as a model predictor as calendar month, "
+    "austral season and cyclic sin/cos features. These variables "
+    "are prepared for future model training and do not change "
+    "the current HSI."
+)
+
+
 st.caption(
-    "V1.4 Step 3 calculates the local oxycline "
-    "only from BGC depth levels that lie within "
-    "the local GEBCO water column. "
-    "Below-seabed BGC levels are excluded."
+
+    f"Reference treatment for this date: "
+    f"{reference['reference_basis']}. "
+    "Summer and winter use the published reference ranges. "
+    "Autumn and spring remain transition periods rather than "
+    "receiving invented numerical thresholds."
 )
 
 
@@ -4991,10 +5101,6 @@ else:
     )
 
 
-# ============================================================
-# MAP DISPLAY VALUES
-# ============================================================
-
 map_data[
     "hsi_display"
 ] = (
@@ -5090,10 +5196,6 @@ map_data[
     )
 )
 
-
-# ============================================================
-# MAP LAYERS
-# ============================================================
 
 ocean_layer = pdk.Layer(
 
@@ -5278,11 +5380,11 @@ zone5.metric(
 
 
 # ============================================================
-# V1.4 STEP 3 OXYCLINE VALIDATION
+# OXYCLINE VALIDATION
 # ============================================================
 
 st.subheader(
-    "🫧 V1.4 Step 3 — Seabed-Constrained Oxycline"
+    "🫧 Seabed-Constrained Oxycline — retained from V1.4"
 )
 
 
@@ -5460,14 +5562,6 @@ else:
     )
 
 
-st.caption(
-    "Step 3 does not use any BGC depth level deeper "
-    "than the local GEBCO seabed. If 1 mL/L is not "
-    "reached among the valid local BGC levels, "
-    "E-AWARE reports it as not reached."
-)
-
-
 if (
     pd.notna(
         raw_oxycline
@@ -5488,157 +5582,13 @@ if (
 
     st.warning(
 
-        f"For transparency, the full coarse BGC "
-        f"profile still produces a raw crossing at "
+        f"For transparency, the full coarse BGC profile "
+        f"produces a raw crossing at "
         f"{float(raw_oxycline):.1f} m, but the local "
         f"water depth is only "
         f"{float(best['water_depth_m']):.1f} m. "
-        f"The below-seabed part of the BGC profile "
-        f"is excluded from the local oxycline calculation."
+        f"The below-seabed part is excluded."
     )
-
-
-# ============================================================
-# OXYCLINE VALIDATION TABLE
-# ============================================================
-
-oxycline_validation = current_data[
-    [
-        "lat",
-        "lon",
-        "hsi",
-        "water_depth_m",
-        "oxygen_ml_l",
-        "raw_oxycline_depth_m",
-        "oxycline_depth_m",
-        "local_profile_max_depth_m",
-        "local_profile_levels",
-        "local_depth_gap_m",
-        "oxycline_source_distance_km",
-        "oxycline_source_lat",
-        "oxycline_source_lon",
-        "oxycline_validation_status"
-    ]
-].copy()
-
-
-for column, decimals in {
-
-    "lat":
-        4,
-
-    "lon":
-        4,
-
-    "hsi":
-        2,
-
-    "water_depth_m":
-        1,
-
-    "oxygen_ml_l":
-        2,
-
-    "raw_oxycline_depth_m":
-        1,
-
-    "oxycline_depth_m":
-        1,
-
-    "local_profile_max_depth_m":
-        1,
-
-    "local_profile_levels":
-        0,
-
-    "local_depth_gap_m":
-        1,
-
-    "oxycline_source_distance_km":
-        2,
-
-    "oxycline_source_lat":
-        4,
-
-    "oxycline_source_lon":
-        4
-
-}.items():
-
-
-    oxycline_validation[
-        column
-    ] = (
-
-        oxycline_validation[
-            column
-        ]
-
-        .round(
-            decimals
-        )
-    )
-
-
-oxycline_validation = (
-    oxycline_validation.rename(
-
-        columns={
-
-            "lat":
-                "Latitude",
-
-            "lon":
-                "Longitude",
-
-            "hsi":
-                "HSI",
-
-            "water_depth_m":
-                "Local GEBCO Depth (m)",
-
-            "oxygen_ml_l":
-                "Surface O₂ (mL/L)",
-
-            "raw_oxycline_depth_m":
-                "Raw Full-Profile Oxycline (m)",
-
-            "oxycline_depth_m":
-                "Local Oxycline (m)",
-
-            "local_profile_max_depth_m":
-                "Deepest BGC Level Used (m)",
-
-            "local_profile_levels":
-                "Local BGC Levels",
-
-            "local_depth_gap_m":
-                "Unsampled Gap to Seabed (m)",
-
-            "oxycline_source_distance_km":
-                "BGC Source Distance (km)",
-
-            "oxycline_source_lat":
-                "BGC Source Latitude",
-
-            "oxycline_source_lon":
-                "BGC Source Longitude",
-
-            "oxycline_validation_status":
-                "Local Oxycline Status"
-        }
-    )
-)
-
-
-st.dataframe(
-
-    oxycline_validation,
-
-    use_container_width=True,
-
-    hide_index=True
-)
 
 
 # ============================================================
@@ -5698,12 +5648,17 @@ reference4.metric(
 )
 
 
+st.caption(
+    f"Seasonal reference basis: "
+    f"{reference['reference_basis']}"
+)
+
+
 st.warning(
-    "V1.4 Step 3 still calculates HSI only from "
-    "temperature, salinity and surface dissolved oxygen. "
-    "Bathymetry, distance from coast and local oxycline "
-    "depth remain additional predictors without fixed "
-    "HSI weights."
+    "V1.5 still calculates HSI only from temperature, "
+    "salinity and surface dissolved oxygen. Month/season, "
+    "bathymetry, distance from coast and local oxycline depth "
+    "remain additional predictors without fixed HSI weights."
 )
 
 
@@ -5843,6 +5798,40 @@ for forecast_date in available_dates:
         {
             "Date":
                 forecast_date,
+
+            "Month":
+                str(
+                    best_forecast[
+                        "month_name"
+                    ]
+                ),
+
+            "Austral Season":
+                str(
+                    best_forecast[
+                        "austral_season"
+                    ]
+                ),
+
+            "Month sin":
+                round(
+                    float(
+                        best_forecast[
+                            "month_sin"
+                        ]
+                    ),
+                    3
+                ),
+
+            "Month cos":
+                round(
+                    float(
+                        best_forecast[
+                            "month_cos"
+                        ]
+                    ),
+                    3
+                ),
 
             "Highest HSI":
                 round(
@@ -6344,10 +6333,6 @@ if len(
         )
 
 
-# ============================================================
-# SHIFT METRICS
-# ============================================================
-
 shift1, shift2, shift3 = (
     st.columns(
         3
@@ -6805,13 +6790,12 @@ else:
 
     st.warning(
         "Not enough forecast information "
-        "is available to draw the "
-        "habitat-shift map."
+        "is available to draw the habitat-shift map."
     )
 
 
 # ============================================================
-# 72-HOUR FORECAST
+# FORECAST TABLE
 # ============================================================
 
 st.subheader(
@@ -6832,7 +6816,7 @@ st.dataframe(
 
 
 # ============================================================
-# SMS ALERT
+# SMS
 # ============================================================
 
 st.subheader(
@@ -6906,15 +6890,14 @@ st.text_area(
 
 
 st.caption(
-    "V1.4 Step 3 keeps local oxycline depth "
-    "out of the fisher-facing SMS and HSI "
-    "while the new vertical calculation "
-    "is being validated."
+    "V1.5 keeps month/season and local oxycline out "
+    "of the fisher-facing SMS and HSI until the "
+    "trained habitat-model stage."
 )
 
 
 # ============================================================
-# DATA SOURCES
+# SOURCES / TRANSPARENCY
 # ============================================================
 
 st.subheader(
@@ -6966,8 +6949,7 @@ source_table = pd.DataFrame(
                 "Static terrain model",
 
             "Use":
-                "Bathymetry, land filtering and "
-                "local water-column limit"
+                "Bathymetry, land filtering and local water-column limit"
         },
 
         {
@@ -6978,8 +6960,7 @@ source_table = pd.DataFrame(
                 "Static coastline geometry",
 
             "Use":
-                "Distance from coast in km "
-                "and nautical miles"
+                "Distance from coast in km and nautical miles"
         },
 
         {
@@ -6990,7 +6971,8 @@ source_table = pd.DataFrame(
                 "Scientific reference",
 
             "Use":
-                "Anchoveta environmental reference ranges"
+                "Summer/winter anchoveta ranges and "
+                "autumn/spring transition treatment"
         },
 
         {
@@ -7001,7 +6983,7 @@ source_table = pd.DataFrame(
                 "Scientific reference",
 
             "Use":
-                "Supports bathymetry, coast distance "
+                "Supports month, bathymetry, coast distance "
                 "and 1 mL/L oxycline as habitat predictors"
         },
 
@@ -7045,29 +7027,29 @@ st.dataframe(
 # ============================================================
 
 st.subheader(
-    "🧪 V1.4 Step 3 Model Status"
+    "🧪 V1.5 Model Status"
 )
 
 
-model1, model2 = (
+status1, status2 = (
     st.columns(
         2
     )
 )
 
 
-model1.success(
-    "The local oxycline is now calculated only "
-    "from BGC depth levels that physically lie "
-    "above the local GEBCO seabed."
+status1.success(
+    "Month and austral season are now explicit predictors, "
+    "with cyclic month sin/cos features ready for future "
+    "model training."
 )
 
 
-model2.warning(
-    "Local oxycline is still not included in "
-    "the HSI. The method is conservative and "
-    "does not interpolate using a BGC depth "
-    "level that lies below the local seabed."
+status2.warning(
+    "V1.5 does not manually weight month, bathymetry, "
+    "coast distance or oxycline in the HSI. Their "
+    "relationships will be learned from historical "
+    "anchoveta observations in V2."
 )
 
 
@@ -7076,7 +7058,7 @@ model2.warning(
 # ============================================================
 
 with st.expander(
-    "⚙️ MVP V1.4 Step 3 Limitations"
+    "⚙️ MVP V1.5 Limitations"
 ):
 
     st.markdown(
@@ -7093,57 +7075,41 @@ with st.expander(
 - GEBCO bathymetry
 - Distance from coast
 - Seabed-constrained oxycline depth
-- Season
+- Calendar month
+- Austral season
+- Cyclic month sin/cos encoding
 
-### V1.4 Step 3 oxycline method
+### V1.5 temporal treatment
 
-For each E-AWARE grid cell, the nearest Copernicus
-BGC oxygen profile is selected for the same date.
+Month is stored explicitly as a future habitat-model predictor.
 
-E-AWARE calculates two different values.
+Month is also converted to sine and cosine features to preserve
+the cyclic structure of the calendar. This means months near
+the year boundary remain close to one another numerically.
 
-**Raw full-profile oxycline**
+The cyclic encoding is an E-AWARE implementation choice and
+is not itself a biological suitability threshold.
 
-This is the 1 mL/L crossing in the complete coarse
-Copernicus BGC profile.
+Summer and winter retain the published environmental reference
+ranges already used by the MVP.
 
-**Local oxycline**
+Autumn and spring are treated as transition periods. E-AWARE
+does not invent separate autumn or spring environmental limits.
 
-Before calculating the local oxycline, E-AWARE
-removes every Copernicus BGC depth level that lies
-deeper than the local GEBCO seabed.
+### Oxycline treatment
 
-The 1 mL/L threshold is then searched for only
-inside the remaining physically valid model levels.
+The nearest Copernicus BGC oxygen profile is constrained to
+depth levels that lie above the local GEBCO seabed.
 
-This means below-seabed BGC oxygen values cannot
-create a local oxycline estimate.
-
-### Conservative treatment near the seabed
-
-The deepest valid BGC model level may still be
-shallower than the actual GEBCO seabed because
-the vertical model uses discrete depth levels.
-
-E-AWARE therefore reports the:
-
-**Unsampled Gap to Seabed**
-
-If oxygen is still above 1 mL/L at the deepest
-valid BGC level, E-AWARE does not use the next
-BGC level below the seabed to estimate a crossing.
-
-Instead it reports that the threshold was not
-reached in the physically valid BGC levels.
+Below-seabed BGC values therefore cannot create a local
+oxycline estimate.
 
 ### Resolution limitation
 
-Copernicus BGC is coarser than the E-AWARE physics
-grid.
+Copernicus BGC is coarser than the E-AWARE physics grid.
 
-Multiple finer E-AWARE cells can therefore use the
-same nearest BGC vertical oxygen profile while
-having different local GEBCO water depths.
+Multiple finer E-AWARE cells can therefore use the same BGC
+oxygen profile while having different local GEBCO depths.
 
 ### HSI
 
@@ -7153,16 +7119,17 @@ The temporary HSI remains:
 
 with equal weights.
 
-Bathymetry, distance from coast and oxycline depth
-remain independent predictors until a trained
-habitat relationship is introduced.
+Month/season, bathymetry, distance from coast and oxycline
+remain outside the HSI until historical observations are used
+for model training.
 
 ### Still not integrated
 
-- Oxycline HSI weighting
-- Oxycline map layer
 - Historical IMARPE anchoveta observations
 - Trained habitat model
+- Learned temporal effects
+- Oxycline model weighting
+- Oxycline map layer
 - Chlorophyll
 - Ocean currents
 - Juvenile protection
@@ -7179,7 +7146,7 @@ st.divider()
 
 
 st.caption(
-    "E-AWARE MVP V1.4 Step 3 | "
+    "E-AWARE MVP V1.5 | "
     "El Niño Adaptive Fisheries Intelligence | "
     "Decision-support research prototype"
 )
