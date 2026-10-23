@@ -12,46 +12,114 @@ import pydeck as pdk
 import streamlit as st
 import xarray as xr
 
+
 # ============================================================
 # PAGE / STUDY AREA
 # ============================================================
 
-st.set_page_config(page_title="E-AWARE", page_icon="🐟", layout="wide")
+st.set_page_config(
+    page_title="E-AWARE",
+    page_icon="🐟",
+    layout="wide"
+)
+
 st.title("🐟 E-AWARE")
-st.caption("El Niño Adaptive Fisheries Intelligence — MVP V1.5")
+
+st.caption(
+    "El Niño Adaptive Fisheries Intelligence — V2 Step 1"
+)
+
 st.info(
-    "E-AWARE estimates suitable anchoveta habitat from environmental conditions. "
-    "It does not show the exact location or swimming direction of individual fish schools."
+    "E-AWARE estimates suitable anchoveta habitat from "
+    "environmental conditions. V2 Step 1 adds historical "
+    "anchoveta observation ingestion and validation, but "
+    "does not train a machine-learning habitat model yet."
 )
 
-MIN_LON, MAX_LON = -81.50, -81.20
-MIN_LAT, MAX_LAT = -4.60, -4.36
 
-COMMUNITIES = pd.DataFrame([
-    {"name": "Lobitos", "lat": -4.4567, "lon": -81.2849},
-    {"name": "Siches", "lat": -4.4890, "lon": -81.2680},
-    {"name": "Piedritas", "lat": -4.5190, "lon": -81.2630},
-])
+MIN_LON = -81.50
+MAX_LON = -81.20
 
-TEMPERATURE_DATASET = "cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m"
-SALINITY_DATASET = "cmems_mod_glo_phy-so_anfc_0.083deg_P1D-m"
-SST_ANOMALY_DATASET = "cmems_mod_glo_phy_anfc_0.083deg-sst-anomaly_P1D-m"
-OXYGEN_DATASET = "cmems_mod_glo_bgc-bio_anfc_0.25deg_P1D-m"
+MIN_LAT = -4.60
+MAX_LAT = -4.36
 
-GEBCO_API_URL = "https://api.odb.ntu.edu.tw/gebco"
-NOAA_COASTLINE_QUERY_URL = (
-    "https://gis.ngdc.noaa.gov/arcgis/rest/services/EMAG2v3/MapServer/1/query"
+
+COMMUNITIES = pd.DataFrame(
+    [
+        {
+            "name": "Lobitos",
+            "lat": -4.4567,
+            "lon": -81.2849
+        },
+        {
+            "name": "Siches",
+            "lat": -4.4890,
+            "lon": -81.2680
+        },
+        {
+            "name": "Piedritas",
+            "lat": -4.5190,
+            "lon": -81.2630
+        }
+    ]
 )
-BASEMAP_URL = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
-
-COASTLINE_QUERY_MARGIN_DEG = 0.75
-KM_PER_NAUTICAL_MILE = 1.852
-OXYGEN_MMOL_M3_TO_ML_L = 0.0223916
-OXYCLINE_THRESHOLD_ML_L = 1.0
 
 
 # ============================================================
-# COPERNICUS HELPERS
+# DATA SOURCES / CONSTANTS
+# ============================================================
+
+TEMPERATURE_DATASET = (
+    "cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m"
+)
+
+SALINITY_DATASET = (
+    "cmems_mod_glo_phy-so_anfc_0.083deg_P1D-m"
+)
+
+SST_ANOMALY_DATASET = (
+    "cmems_mod_glo_phy_anfc_0.083deg-sst-anomaly_P1D-m"
+)
+
+OXYGEN_DATASET = (
+    "cmems_mod_glo_bgc-bio_anfc_0.25deg_P1D-m"
+)
+
+
+GEBCO_API_URL = (
+    "https://api.odb.ntu.edu.tw/gebco"
+)
+
+
+NOAA_COASTLINE_QUERY_URL = (
+    "https://gis.ngdc.noaa.gov/"
+    "arcgis/rest/services/"
+    "EMAG2v3/MapServer/1/query"
+)
+
+
+BASEMAP_URL = (
+    "https://basemaps.cartocdn.com/"
+    "gl/positron-gl-style/style.json"
+)
+
+
+COASTLINE_QUERY_MARGIN_DEG = 0.75
+
+KM_PER_NAUTICAL_MILE = 1.852
+
+OXYGEN_MMOL_M3_TO_ML_L = 0.0223916
+
+OXYCLINE_THRESHOLD_ML_L = 1.0
+
+
+HISTORICAL_REPO_PATH = Path(
+    "data/imarpe_anchoveta_observations.csv"
+)
+
+
+# ============================================================
+# GENERAL HELPERS
 # ============================================================
 
 def get_credentials():
@@ -76,6 +144,61 @@ def get_credentials():
     return username, password
 
 
+def resolve_downloaded_file(
+    response,
+    temp_dir,
+    filename
+):
+
+    possible = Path(
+        str(
+            response.file_path
+        )
+    )
+
+
+    if possible.exists():
+
+        return possible
+
+
+    expected = (
+        Path(
+            temp_dir
+        )
+        /
+        filename
+    )
+
+
+    if expected.exists():
+
+        return expected
+
+
+    candidates = list(
+        Path(
+            temp_dir
+        )
+        .glob(
+            "*.nc"
+        )
+    )
+
+
+    if not candidates:
+
+        raise RuntimeError(
+            "Copernicus download completed "
+            "but no NetCDF file was found."
+        )
+
+
+    return candidates[
+        0
+    ]
+
+
 def prepare_dataframe(
     dataframe,
     variable_name
@@ -85,11 +208,13 @@ def prepare_dataframe(
 
     rename_map = {}
 
+
     for column in df.columns:
 
         column_lower = str(
             column
         ).lower()
+
 
         if column_lower in [
             "latitude",
@@ -99,6 +224,7 @@ def prepare_dataframe(
             rename_map[
                 column
             ] = "lat"
+
 
         elif column_lower in [
             "longitude",
@@ -115,7 +241,7 @@ def prepare_dataframe(
     )
 
 
-    required_columns = [
+    required = [
         "time",
         "lat",
         "lon",
@@ -125,7 +251,7 @@ def prepare_dataframe(
 
     missing = [
         column
-        for column in required_columns
+        for column in required
         if column not in df.columns
     ]
 
@@ -217,63 +343,8 @@ def prepare_dataframe(
     ]
 
 
-def resolve_downloaded_file(
-    response,
-    temp_dir,
-    filename
-):
-
-    possible_path = Path(
-        str(
-            response.file_path
-        )
-    )
-
-
-    if possible_path.exists():
-
-        return possible_path
-
-
-    expected_path = (
-        Path(
-            temp_dir
-        )
-        /
-        filename
-    )
-
-
-    if expected_path.exists():
-
-        return expected_path
-
-
-    candidates = list(
-        Path(
-            temp_dir
-        )
-        .glob(
-            "*.nc"
-        )
-    )
-
-
-    if not candidates:
-
-        raise RuntimeError(
-            "Copernicus download completed "
-            "but no NetCDF file was found."
-        )
-
-
-    return candidates[
-        0
-    ]
-
-
 # ============================================================
-# STANDARD COPERNICUS SUBSET
+# COPERNICUS SURFACE DATA
 # ============================================================
 
 def download_subset(
@@ -302,7 +373,7 @@ def download_subset(
         )
 
 
-        subset_arguments = {
+        arguments = {
 
             "dataset_id":
                 dataset_id,
@@ -352,18 +423,18 @@ def download_subset(
 
         if use_depth:
 
-            subset_arguments[
+            arguments[
                 "minimum_depth"
             ] = 0
 
-            subset_arguments[
+            arguments[
                 "maximum_depth"
             ] = 1
 
 
         response = (
             copernicusmarine.subset(
-                **subset_arguments
+                **arguments
             )
         )
 
@@ -382,10 +453,10 @@ def download_subset(
 
         with xr.open_dataset(
             file_path
-        ) as ds:
+        ) as dataset:
 
 
-            if variable not in ds.data_vars:
+            if variable not in dataset.data_vars:
 
                 raise RuntimeError(
                     f"Variable '{variable}' "
@@ -395,7 +466,7 @@ def download_subset(
 
 
             data_array = (
-                ds[
+                dataset[
                     variable
                 ]
             )
@@ -508,7 +579,7 @@ def load_sst_anomaly(
 
 
 # ============================================================
-# FULL 3D OXYGEN PROFILE
+# COPERNICUS 3D OXYGEN
 # ============================================================
 
 @st.cache_data(
@@ -601,10 +672,10 @@ def load_oxygen_profile(
 
         with xr.open_dataset(
             file_path
-        ) as ds:
+        ) as dataset:
 
 
-            if "o2" not in ds.data_vars:
+            if "o2" not in dataset.data_vars:
 
                 raise RuntimeError(
                     "Variable 'o2' was not "
@@ -614,7 +685,7 @@ def load_oxygen_profile(
 
             dataframe = (
 
-                ds[
+                dataset[
                     "o2"
                 ]
 
@@ -658,14 +729,12 @@ def load_oxygen_profile(
             ] = "lon"
 
 
-    dataframe = (
-        dataframe.rename(
-            columns=rename_map
-        )
+    dataframe = dataframe.rename(
+        columns=rename_map
     )
 
 
-    required_columns = [
+    required = [
         "time",
         "depth",
         "lat",
@@ -676,7 +745,7 @@ def load_oxygen_profile(
 
     missing = [
         column
-        for column in required_columns
+        for column in required
         if column not in dataframe.columns
     ]
 
@@ -689,31 +758,22 @@ def load_oxygen_profile(
         )
 
 
-    dataframe = (
-
-        dataframe
-
-        .dropna(
-            subset=[
-                "oxygen_mmol_m3",
-                "depth"
-            ]
-        )
-
-        .copy()
-    )
+    dataframe = dataframe.dropna(
+        subset=[
+            "oxygen_mmol_m3",
+            "depth"
+        ]
+    ).copy()
 
 
     dataframe[
         "date"
     ] = (
-
         pd.to_datetime(
             dataframe[
                 "time"
             ]
         )
-
         .dt.date
     )
 
@@ -827,7 +887,6 @@ def surface_oxygen_from_profile(
                 "lat_key",
                 "lon_key"
             ],
-
             as_index=False
         )
 
@@ -850,10 +909,6 @@ def surface_oxygen_from_profile(
         .copy()
     )
 
-
-# ============================================================
-# OXYCLINE CROSSING
-# ============================================================
 
 def estimate_oxycline_depth(
     profile,
@@ -984,11 +1039,7 @@ def estimate_oxycline_depth(
             )
 
 
-            if (
-                lower_oxygen
-                ==
-                upper_oxygen
-            ):
+            if lower_oxygen == upper_oxygen:
 
                 crossing_depth = (
                     lower_depth
@@ -1052,7 +1103,7 @@ def estimate_oxycline_depth(
 
 
 # ============================================================
-# MERGE / NEAREST SOURCE
+# PHYSICS / NEAREST BGC MAPPING
 # ============================================================
 
 def merge_physics_data(
@@ -1107,7 +1158,8 @@ def merge_physics_data(
     if merged.empty:
 
         raise RuntimeError(
-            "No matching physics grid cells were found."
+            "No matching physics grid cells "
+            "were found."
         )
 
 
@@ -1402,7 +1454,7 @@ def attach_nearest_oxygen(
 
 
 # ============================================================
-# GEBCO
+# GEBCO HELPERS
 # ============================================================
 
 def first_numeric(
@@ -1725,7 +1777,7 @@ def get_gebco_elevation(
                 "application/json",
 
             "User-Agent":
-                "E-AWARE/1.5 academic prototype"
+                "E-AWARE/2.0 academic prototype"
         },
 
         timeout=30
@@ -1836,7 +1888,7 @@ def get_gebco_batch(
                     "application/json",
 
                 "User-Agent":
-                    "E-AWARE/1.5 academic prototype"
+                    "E-AWARE/2.0 academic prototype"
             },
 
             timeout=40
@@ -2074,7 +2126,7 @@ def attach_gebco_bathymetry(
 
 
 # ============================================================
-# V1.4 SEABED-CONSTRAINED OXYCLINE
+# SEABED-CONSTRAINED OXYCLINE
 # ============================================================
 
 def attach_seabed_constrained_oxycline(
@@ -2087,7 +2139,7 @@ def attach_seabed_constrained_oxycline(
     )
 
 
-    columns = {
+    defaults = {
 
         "raw_oxycline_depth_m":
             np.nan,
@@ -2127,7 +2179,7 @@ def attach_seabed_constrained_oxycline(
     }
 
 
-    for column, default in columns.items():
+    for column, default in defaults.items():
 
         result[
             column
@@ -2312,6 +2364,11 @@ def attach_seabed_constrained_oxycline(
             ].copy()
 
 
+            profile = profile.sort_values(
+                "depth"
+            )
+
+
             if profile.empty:
 
                 result.at[
@@ -2322,13 +2379,6 @@ def attach_seabed_constrained_oxycline(
                 )
 
                 continue
-
-
-            profile = (
-                profile.sort_values(
-                    "depth"
-                )
-            )
 
 
             (
@@ -2481,7 +2531,7 @@ def attach_seabed_constrained_oxycline(
 
             (
                 local_depth,
-                local_status
+                _
             ) = estimate_oxycline_depth(
                 local_profile
             )
@@ -2510,51 +2560,46 @@ def attach_seabed_constrained_oxycline(
                 )
 
 
+            elif (
+                pd.notna(
+                    raw_depth
+                )
+
+                and
+
+                float(
+                    raw_depth
+                )
+                >
+                local_water_depth
+            ):
+
+
+                result.at[
+                    target_index,
+                    "oxycline_validation_status"
+                ] = (
+
+                    "1 mL/L threshold not reached "
+                    "in valid BGC levels within the local "
+                    f"{local_water_depth:.1f} m water column; "
+                    "raw full-profile crossing occurs "
+                    f"at {float(raw_depth):.1f} m"
+                )
+
+
             else:
 
 
-                if (
-                    pd.notna(
-                        raw_depth
-                    )
+                result.at[
+                    target_index,
+                    "oxycline_validation_status"
+                ] = (
 
-                    and
-
-                    float(
-                        raw_depth
-                    )
-                    >
-                    local_water_depth
-                ):
-
-
-                    result.at[
-                        target_index,
-                        "oxycline_validation_status"
-                    ] = (
-
-                        "1 mL/L threshold not reached "
-                        "in valid BGC levels within the "
-                        f"local {local_water_depth:.1f} m "
-                        "water column; "
-                        f"raw full-profile crossing occurs "
-                        f"at {float(raw_depth):.1f} m"
-                    )
-
-
-                else:
-
-
-                    result.at[
-                        target_index,
-                        "oxycline_validation_status"
-                    ] = (
-
-                        "1 mL/L threshold not reached "
-                        "in valid BGC levels within the "
-                        f"local {local_water_depth:.1f} m "
-                        "water column"
-                    )
+                    "1 mL/L threshold not reached "
+                    "in valid BGC levels within the local "
+                    f"{local_water_depth:.1f} m water column"
+                )
 
 
     if result[
@@ -2608,7 +2653,7 @@ def load_noaa_coastline_lines():
     )
 
 
-    common_params = {
+    common_parameters = {
 
         "where":
             "1=1",
@@ -2642,18 +2687,18 @@ def load_noaa_coastline_lines():
             "application/json",
 
         "User-Agent":
-            "E-AWARE/1.5 academic prototype"
+            "E-AWARE/2.0 academic prototype"
     }
 
 
     try:
 
-        params = dict(
-            common_params
+        parameters = dict(
+            common_parameters
         )
 
 
-        params[
+        parameters[
             "f"
         ] = "geojson"
 
@@ -2662,7 +2707,7 @@ def load_noaa_coastline_lines():
 
             NOAA_COASTLINE_QUERY_URL,
 
-            params=params,
+            params=parameters,
 
             headers=headers,
 
@@ -2742,12 +2787,12 @@ def load_noaa_coastline_lines():
         pass
 
 
-    params = dict(
-        common_params
+    parameters = dict(
+        common_parameters
     )
 
 
-    params[
+    parameters[
         "f"
     ] = "json"
 
@@ -2756,7 +2801,7 @@ def load_noaa_coastline_lines():
 
         NOAA_COASTLINE_QUERY_URL,
 
-        params=params,
+        params=parameters,
 
         headers=headers,
 
@@ -2794,14 +2839,11 @@ def load_noaa_coastline_lines():
         ) or {}
 
 
-        paths = geometry.get(
-            "paths",
-            []
-        )
-
-
         line_strings.extend(
-            paths
+            geometry.get(
+                "paths",
+                []
+            )
         )
 
 
@@ -2815,10 +2857,6 @@ def load_noaa_coastline_lines():
 
     return line_strings
 
-
-# ============================================================
-# COAST DISTANCE
-# ============================================================
 
 def point_to_segment_distance_km(
     point_lat,
@@ -3085,15 +3123,12 @@ def distance_to_nearest_coast_km(
             )
 
 
-            if (
-                distance
-                <
-                minimum_distance
-            ):
+            minimum_distance = min(
 
-                minimum_distance = (
-                    distance
-                )
+                minimum_distance,
+
+                distance
+            )
 
 
     if not math.isfinite(
@@ -3246,7 +3281,7 @@ def attach_distance_to_coast(
 
 
 # ============================================================
-# V1.5 TEMPORAL / SEASONAL FEATURES
+# TEMPORAL FEATURES
 # ============================================================
 
 def austral_season(
@@ -3311,14 +3346,17 @@ def add_temporal_features(
     angle = (
 
         2.0
+
         *
         np.pi
+
         *
         (
             month
             -
             1
         )
+
         /
         12.0
     )
@@ -3360,32 +3398,11 @@ def add_temporal_features(
     )
 
 
-    df[
-        "season_reference_type"
-    ] = np.where(
-
-        month.isin(
-            [
-                12,
-                1,
-                2,
-                6,
-                7,
-                8
-            ]
-        ),
-
-        "Direct summer/winter reference",
-
-        "Transition-season envelope"
-    )
-
-
     return df
 
 
 # ============================================================
-# HABITAT / HSI
+# HABITAT REFERENCE / HSI
 # ============================================================
 
 def habitat_reference(
@@ -3482,7 +3499,10 @@ def habitat_reference(
             season_name,
 
         "reference_basis":
-            "Transition envelope — no invented seasonal threshold",
+            (
+                "Transition envelope — "
+                "no invented seasonal threshold"
+            ),
 
         "temp_min":
             14.5,
@@ -3667,23 +3687,28 @@ def calculate_hsi(
         "hsi"
     ] = (
 
-        df[
-            "temperature_score"
-        ]
+        (
 
-        +
+            df[
+                "temperature_score"
+            ]
 
-        df[
-            "salinity_score"
-        ]
+            +
 
-        +
+            df[
+                "salinity_score"
+            ]
 
-        df[
-            "oxygen_score"
-        ]
+            +
 
-    ) / 3.0
+            df[
+                "oxygen_score"
+            ]
+        )
+
+        /
+        3.0
+    )
 
 
     df[
@@ -3817,7 +3842,7 @@ def habitat_centroid(
 
 
 # ============================================================
-# MOVEMENT
+# MOVEMENT FUNCTIONS
 # ============================================================
 
 def haversine(
@@ -3827,9 +3852,7 @@ def haversine(
     lon2
 ):
 
-    earth_radius = (
-        6371.0
-    )
+    earth_radius = 6371.0
 
 
     phi1 = math.radians(
@@ -3891,8 +3914,10 @@ def haversine(
     return (
 
         2
+
         *
         earth_radius
+
         *
         math.asin(
             math.sqrt(
@@ -4011,22 +4036,21 @@ def direction_name(
     ]
 
 
-    index = int(
+    return directions[
 
-        (
-            bearing
-            +
-            22.5
+        int(
+            (
+                bearing
+                +
+                22.5
+            )
+
+            //
+            45
         )
 
-        //
-        45
-
-    ) % 8
-
-
-    return directions[
-        index
+        %
+        8
     ]
 
 
@@ -4079,6 +4103,908 @@ def movement_components(
 
 
 # ============================================================
+# V2 STEP 1 — HISTORICAL OBSERVATION INGESTION
+# ============================================================
+
+COLUMN_ALIASES = {
+
+    "date":
+        [
+            "date",
+            "datetime",
+            "time",
+            "fecha",
+            "sample_date",
+            "survey_date"
+        ],
+
+    "lat":
+        [
+            "lat",
+            "latitude",
+            "latitud",
+            "y"
+        ],
+
+    "lon":
+        [
+            "lon",
+            "longitude",
+            "longitud",
+            "lng",
+            "x"
+        ],
+
+    "presence":
+        [
+            "presence",
+            "present",
+            "occurrence",
+            "presence_absence",
+            "pres_abs",
+            "anchovy_presence",
+            "anchoveta_presence",
+            "fish_presence"
+        ],
+
+    "abundance":
+        [
+            "abundance",
+            "anchovy_abundance",
+            "anchoveta_abundance",
+            "density",
+            "acoustic_abundance",
+            "sa",
+            "nasc",
+            "biomass_index"
+        ],
+
+    "length_cm":
+        [
+            "length_cm",
+            "length",
+            "size_cm",
+            "talla_cm",
+            "fish_length_cm"
+        ],
+
+    "catch":
+        [
+            "catch",
+            "catch_t",
+            "catch_tonnes",
+            "volume",
+            "volumen",
+            "landings"
+        ]
+}
+
+
+def normalise_column_name(
+    name
+):
+
+    return (
+
+        str(
+            name
+        )
+
+        .strip()
+
+        .lower()
+
+        .replace(
+            " ",
+            "_"
+        )
+
+        .replace(
+            "-",
+            "_"
+        )
+    )
+
+
+def find_alias(
+    columns,
+    canonical
+):
+
+    normalized = {
+
+        normalise_column_name(
+            column
+        ):
+            column
+
+        for column in columns
+    }
+
+
+    for alias in COLUMN_ALIASES[
+        canonical
+    ]:
+
+
+        if alias in normalized:
+
+            return normalized[
+                alias
+            ]
+
+
+    return None
+
+
+def parse_presence(
+    series
+):
+
+    if pd.api.types.is_numeric_dtype(
+        series
+    ):
+
+
+        numeric = pd.to_numeric(
+            series,
+            errors="coerce"
+        )
+
+
+        unique_values = set(
+
+            numeric
+
+            .dropna()
+
+            .unique()
+
+            .tolist()
+        )
+
+
+        if unique_values.issubset(
+            {
+                0,
+                1
+            }
+        ):
+
+            return numeric
+
+
+        return pd.Series(
+
+            np.where(
+
+                numeric.notna(),
+
+                (
+                    numeric
+                    >
+                    0
+                )
+                .astype(
+                    float
+                ),
+
+                np.nan
+            ),
+
+            index=
+                series.index,
+
+            dtype=
+                float
+        )
+
+
+    lowered = (
+
+        series
+
+        .astype(
+            str
+        )
+
+        .str.strip()
+
+        .str.lower()
+    )
+
+
+    true_values = {
+
+        "1",
+        "true",
+        "yes",
+        "y",
+        "present",
+        "presence",
+        "si",
+        "sí"
+    }
+
+
+    false_values = {
+
+        "0",
+        "false",
+        "no",
+        "n",
+        "absent",
+        "absence"
+    }
+
+
+    mapped = []
+
+
+    for value in lowered:
+
+
+        if value in true_values:
+
+            mapped.append(
+                1.0
+            )
+
+
+        elif value in false_values:
+
+            mapped.append(
+                0.0
+            )
+
+
+        else:
+
+            mapped.append(
+                np.nan
+            )
+
+
+    return pd.Series(
+
+        mapped,
+
+        index=
+            series.index,
+
+        dtype=
+            float
+    )
+
+
+def standardise_historical_observations(
+    raw
+):
+
+    dataframe = (
+        raw.copy()
+    )
+
+
+    source_columns = list(
+        dataframe.columns
+    )
+
+
+    mapping = {
+
+        canonical:
+            find_alias(
+                source_columns,
+                canonical
+            )
+
+        for canonical in COLUMN_ALIASES
+    }
+
+
+    missing_core = [
+
+        column
+
+        for column in [
+            "date",
+            "lat",
+            "lon"
+        ]
+
+        if mapping[
+            column
+        ]
+        is None
+    ]
+
+
+    if missing_core:
+
+        raise ValueError(
+
+            "Historical file is missing "
+            "required field(s): "
+
+            +
+
+            ", ".join(
+                missing_core
+            )
+        )
+
+
+    output = pd.DataFrame()
+
+
+    output[
+        "date"
+    ] = pd.to_datetime(
+
+        dataframe[
+            mapping[
+                "date"
+            ]
+        ],
+
+        errors=
+            "coerce"
+    )
+
+
+    output[
+        "lat"
+    ] = pd.to_numeric(
+
+        dataframe[
+            mapping[
+                "lat"
+            ]
+        ],
+
+        errors=
+            "coerce"
+    )
+
+
+    output[
+        "lon"
+    ] = pd.to_numeric(
+
+        dataframe[
+            mapping[
+                "lon"
+            ]
+        ],
+
+        errors=
+            "coerce"
+    )
+
+
+    presence_source = (
+        "Unavailable"
+    )
+
+
+    if mapping[
+        "presence"
+    ] is not None:
+
+
+        output[
+            "presence"
+        ] = parse_presence(
+
+            dataframe[
+                mapping[
+                    "presence"
+                ]
+            ]
+        )
+
+
+        presence_source = (
+
+            "Existing field: "
+
+            +
+
+            str(
+                mapping[
+                    "presence"
+                ]
+            )
+        )
+
+
+    elif mapping[
+        "abundance"
+    ] is not None:
+
+
+        abundance = pd.to_numeric(
+
+            dataframe[
+                mapping[
+                    "abundance"
+                ]
+            ],
+
+            errors=
+                "coerce"
+        )
+
+
+        output[
+            "abundance"
+        ] = abundance
+
+
+        output[
+            "presence"
+        ] = np.where(
+
+            abundance.notna(),
+
+            (
+                abundance
+                >
+                0
+            )
+            .astype(
+                float
+            ),
+
+            np.nan
+        )
+
+
+        presence_source = (
+
+            "Derived from abundance > 0 using: "
+
+            +
+
+            str(
+                mapping[
+                    "abundance"
+                ]
+            )
+        )
+
+
+    else:
+
+        output[
+            "presence"
+        ] = np.nan
+
+
+    if (
+        mapping[
+            "abundance"
+        ]
+        is not None
+
+        and
+
+        "abundance"
+        not in output.columns
+    ):
+
+
+        output[
+            "abundance"
+        ] = pd.to_numeric(
+
+            dataframe[
+                mapping[
+                    "abundance"
+                ]
+            ],
+
+            errors=
+                "coerce"
+        )
+
+
+    if "abundance" not in output.columns:
+
+        output[
+            "abundance"
+        ] = np.nan
+
+
+    if mapping[
+        "length_cm"
+    ] is not None:
+
+
+        output[
+            "length_cm"
+        ] = pd.to_numeric(
+
+            dataframe[
+                mapping[
+                    "length_cm"
+                ]
+            ],
+
+            errors=
+                "coerce"
+        )
+
+
+    else:
+
+        output[
+            "length_cm"
+        ] = np.nan
+
+
+    if mapping[
+        "catch"
+    ] is not None:
+
+
+        output[
+            "catch"
+        ] = pd.to_numeric(
+
+            dataframe[
+                mapping[
+                    "catch"
+                ]
+            ],
+
+            errors=
+                "coerce"
+        )
+
+
+    else:
+
+        output[
+            "catch"
+        ] = np.nan
+
+
+    output[
+        "source_row"
+    ] = np.arange(
+
+        1,
+
+        len(
+            output
+        )
+        +
+        1
+    )
+
+
+    output[
+        "valid_coordinates"
+    ] = (
+
+        output[
+            "lat"
+        ]
+        .between(
+            -90,
+            90
+        )
+
+        &
+
+        output[
+            "lon"
+        ]
+        .between(
+            -180,
+            180
+        )
+    )
+
+
+    output[
+        "within_peru_lat_band"
+    ] = (
+
+        output[
+            "lat"
+        ]
+        .between(
+            -20.5,
+            0.5
+        )
+    )
+
+
+    output[
+        "within_eaware_study_area"
+    ] = (
+
+        output[
+            "lat"
+        ]
+        .between(
+            MIN_LAT,
+            MAX_LAT
+        )
+
+        &
+
+        output[
+            "lon"
+        ]
+        .between(
+            MIN_LON,
+            MAX_LON
+        )
+    )
+
+
+    output[
+        "month_number"
+    ] = (
+        output[
+            "date"
+        ]
+        .dt.month
+    )
+
+
+    output[
+        "year"
+    ] = (
+        output[
+            "date"
+        ]
+        .dt.year
+    )
+
+
+    output[
+        "austral_season"
+    ] = (
+
+        output[
+            "month_number"
+        ]
+
+        .apply(
+
+            lambda month:
+
+                austral_season(
+                    int(
+                        month
+                    )
+                )
+
+                if pd.notna(
+                    month
+                )
+
+                else None
+        )
+    )
+
+
+    usable = output[
+
+        output[
+            "date"
+        ]
+        .notna()
+
+        &
+
+        output[
+            "valid_coordinates"
+        ]
+
+    ].copy()
+
+
+    metadata = {
+
+        "mapping":
+            mapping,
+
+        "presence_source":
+            presence_source,
+
+        "raw_rows":
+            int(
+                len(
+                    output
+                )
+            ),
+
+        "usable_rows":
+            int(
+                len(
+                    usable
+                )
+            ),
+
+        "invalid_date_rows":
+            int(
+                output[
+                    "date"
+                ]
+                .isna()
+                .sum()
+            ),
+
+        "invalid_coordinate_rows":
+            int(
+                (
+                    ~
+                    output[
+                        "valid_coordinates"
+                    ]
+                )
+                .sum()
+            ),
+
+        "study_area_rows":
+            int(
+                usable[
+                    "within_eaware_study_area"
+                ]
+                .sum()
+            ),
+
+        "presence_known_rows":
+            int(
+                usable[
+                    "presence"
+                ]
+                .notna()
+                .sum()
+            )
+    }
+
+
+    metadata[
+        "training_ready"
+    ] = (
+
+        metadata[
+            "usable_rows"
+        ]
+        >
+        0
+
+        and
+
+        metadata[
+            "presence_known_rows"
+        ]
+        >
+        0
+
+        and
+
+        usable[
+            "presence"
+        ]
+        .dropna()
+        .nunique()
+        >=
+        2
+    )
+
+
+    return (
+        usable,
+        metadata
+    )
+
+
+def read_historical_source(
+    uploaded_file
+):
+
+    if uploaded_file is not None:
+
+        return (
+
+            pd.read_csv(
+                uploaded_file
+            ),
+
+            "Uploaded CSV"
+        )
+
+
+    if HISTORICAL_REPO_PATH.exists():
+
+        return (
+
+            pd.read_csv(
+                HISTORICAL_REPO_PATH
+            ),
+
+            str(
+                HISTORICAL_REPO_PATH
+            )
+        )
+
+
+    return (
+        None,
+        None
+    )
+
+
+def historical_template_csv():
+
+    template = pd.DataFrame(
+
+        [
+            {
+                "date":
+                    "2008-04-15",
+
+                "latitude":
+                    -4.45,
+
+                "longitude":
+                    -81.30,
+
+                "presence":
+                    1,
+
+                "abundance":
+                    120.0,
+
+                "length_cm":
+                    13.2
+            },
+
+            {
+                "date":
+                    "2008-04-15",
+
+                "latitude":
+                    -4.48,
+
+                "longitude":
+                    -81.38,
+
+                "presence":
+                    0,
+
+                "abundance":
+                    0.0,
+
+                "length_cm":
+                    ""
+            }
+        ]
+    )
+
+
+    return (
+        template
+
+        .to_csv(
+            index=False
+        )
+
+        .encode(
+            "utf-8"
+        )
+    )
+
+
+# ============================================================
 # SIDEBAR
 # ============================================================
 
@@ -4121,7 +5047,8 @@ with st.sidebar:
 
         "Ocean Date",
 
-        value=date.today()
+        value=
+            date.today()
     )
 
 
@@ -4132,12 +5059,41 @@ with st.sidebar:
 
 
     if st.button(
-        "🔄 Refresh Data",
+        "🔄 Refresh Live Data",
         use_container_width=True
     ):
 
         st.cache_data.clear()
 
+
+    st.divider()
+
+
+    st.markdown(
+        "### V2 Historical Data"
+    )
+
+
+    uploaded_historical = st.file_uploader(
+
+        "Historical anchoveta CSV",
+
+        type=[
+            "csv"
+        ],
+
+        help=(
+            "If data/imarpe_anchoveta_observations.csv "
+            "exists in the repository, E-AWARE uses it "
+            "automatically. An uploaded CSV overrides "
+            "the repository file."
+        )
+    )
+
+
+# ============================================================
+# LIVE ENVIRONMENTAL DATA
+# ============================================================
 
 end_date = (
 
@@ -4151,15 +5107,11 @@ end_date = (
 )
 
 
-# ============================================================
-# LOAD DATA
-# ============================================================
-
 try:
 
     with st.status(
 
-        "Loading E-AWARE V1.5 environmental data...",
+        "Loading E-AWARE environmental data...",
 
         expanded=True
 
@@ -4179,11 +5131,14 @@ try:
         credentials_valid = (
             copernicusmarine.login(
 
-                username=username,
+                username=
+                    username,
 
-                password=password,
+                password=
+                    password,
 
-                check_credentials_valid=True
+                check_credentials_valid=
+                    True
             )
         )
 
@@ -4197,7 +5152,7 @@ try:
 
 
         status.write(
-            "🌡️ 1/7 Downloading temperature..."
+            "🌡️ 1/7 Temperature"
         )
 
 
@@ -4212,7 +5167,7 @@ try:
 
 
         status.write(
-            "🧂 2/7 Downloading salinity..."
+            "🧂 2/7 Salinity"
         )
 
 
@@ -4227,7 +5182,7 @@ try:
 
 
         status.write(
-            "🌊 3/7 Downloading SST anomaly..."
+            "🌊 3/7 SST anomaly"
         )
 
 
@@ -4242,7 +5197,7 @@ try:
 
 
         status.write(
-            "🫧 4/7 Downloading full 3D oxygen profile..."
+            "🫧 4/7 3D oxygen profile"
         )
 
 
@@ -4256,7 +5211,7 @@ try:
         )
 
 
-        oxygen_data = (
+        oxygen_surface = (
             surface_oxygen_from_profile(
                 oxygen_profile_data
             )
@@ -4280,13 +5235,13 @@ try:
 
                 ocean,
 
-                oxygen_data
+                oxygen_surface
             )
         )
 
 
         status.write(
-            "🗻 5/7 Retrieving GEBCO_2026 bathymetry..."
+            "🗻 5/7 GEBCO bathymetry"
         )
 
 
@@ -4298,7 +5253,7 @@ try:
 
 
         status.write(
-            "📏 6/7 Calculating distance from coast..."
+            "📏 6/7 Distance from coast"
         )
 
 
@@ -4310,7 +5265,7 @@ try:
 
 
         status.write(
-            "🫧 7/7 Calculating seabed-constrained oxycline..."
+            "🫧 7/7 Seabed-constrained oxycline"
         )
 
 
@@ -4324,11 +5279,6 @@ try:
         )
 
 
-        status.write(
-            "🗓️ Adding V1.5 month and austral-season predictors..."
-        )
-
-
         ocean = (
             add_temporal_features(
                 ocean
@@ -4336,30 +5286,10 @@ try:
         )
 
 
-        accepted = int(
-
-            ocean[
-                "oxycline_depth_m"
-            ]
-
-            .notna()
-
-            .sum()
-        )
-
-
-        status.write(
-
-            f"✅ Oxycline calculation complete. "
-            f"{accepted} mapped cells currently "
-            f"contain a valid 1 mL/L crossing."
-        )
-
-
         status.update(
 
             label=
-                "✅ E-AWARE V1.5 environmental data loaded",
+                "✅ E-AWARE live environmental data loaded",
 
             state=
                 "complete",
@@ -4372,8 +5302,8 @@ try:
 except Exception as error:
 
     st.error(
-        "❌ E-AWARE V1.5 could not "
-        "load all environmental data."
+        "❌ E-AWARE could not load all "
+        "live environmental data."
     )
 
 
@@ -4388,7 +5318,7 @@ except Exception as error:
 
 
 # ============================================================
-# CURRENT DATA
+# CURRENT CONDITIONS
 # ============================================================
 
 available_dates = sorted(
@@ -4512,7 +5442,7 @@ coastline_lines = (
 
 
 # ============================================================
-# CURRENT CONDITIONS
+# CURRENT CONDITIONS UI
 # ============================================================
 
 st.subheader(
@@ -4604,104 +5534,57 @@ context4.metric(
 
 
 # ============================================================
-# V1.5 TEMPORAL / SEASONAL PREDICTOR
+# TEMPORAL / SEASONAL PREDICTOR
 # ============================================================
 
 st.subheader(
-    "🗓️ V1.5 — Temporal / Seasonal Predictor"
+    "🗓️ Temporal / Seasonal Predictor"
 )
 
 
-current_month_number = int(
-    best[
-        "month_number"
-    ]
-)
-
-
-current_month_name = str(
-    best[
-        "month_name"
-    ]
-)
-
-
-current_austral_season = str(
-    best[
-        "austral_season"
-    ]
-)
-
-
-current_month_sin = float(
-    best[
-        "month_sin"
-    ]
-)
-
-
-current_month_cos = float(
-    best[
-        "month_cos"
-    ]
-)
-
-
-time1, time2, time3, time4, time5 = (
+temporal1, temporal2, temporal3, temporal4, temporal5 = (
     st.columns(
         5
     )
 )
 
 
-time1.metric(
+temporal1.metric(
+
     "Month",
+
     (
-        f"{current_month_name} "
-        f"({current_month_number})"
+        f"{best['month_name']} "
+        f"({int(best['month_number'])})"
     )
 )
 
 
-time2.metric(
+temporal2.metric(
     "Austral Season",
-    current_austral_season
+    str(
+        best[
+            "austral_season"
+        ]
+    )
 )
 
 
-time3.metric(
+temporal3.metric(
     "Month sin",
-    f"{current_month_sin:.3f}"
+    f"{float(best['month_sin']):.3f}"
 )
 
 
-time4.metric(
+temporal4.metric(
     "Month cos",
-    f"{current_month_cos:.3f}"
+    f"{float(best['month_cos']):.3f}"
 )
 
 
-time5.metric(
+temporal5.metric(
     "HSI Weight",
     "Not included"
-)
-
-
-st.info(
-    "Month is now stored as a model predictor as calendar month, "
-    "austral season and cyclic sin/cos features. These variables "
-    "are prepared for future model training and do not change "
-    "the current HSI."
-)
-
-
-st.caption(
-
-    f"Reference treatment for this date: "
-    f"{reference['reference_basis']}. "
-    "Summer and winter use the published reference ranges. "
-    "Autumn and spring remain transition periods rather than "
-    "receiving invented numerical thresholds."
 )
 
 
@@ -4754,7 +5637,7 @@ def scaled(
             values.min()
         ),
 
-        0.000000001
+        1e-9
     )
 
 
@@ -4767,25 +5650,19 @@ def scaled(
     ) / spread
 
 
-if map_mode == (
-    "Habitat Suitability"
-):
+if map_mode == "Habitat Suitability":
 
     map_data[
         "r"
     ] = (
 
-        (
-            1
-            -
-            map_data[
-                "hsi"
-            ]
-        )
+        1
+        -
+        map_data[
+            "hsi"
+        ]
 
-        *
-        220
-    )
+    ) * 220
 
 
     map_data[
@@ -4806,9 +5683,7 @@ if map_mode == (
     ] = 70
 
 
-elif map_mode == (
-    "Temperature"
-):
+elif map_mode == "Temperature":
 
     normalised = scaled(
         map_data[
@@ -4848,9 +5723,7 @@ elif map_mode == (
     )
 
 
-elif map_mode == (
-    "Salinity"
-):
+elif map_mode == "Salinity":
 
     normalised = scaled(
         map_data[
@@ -4882,9 +5755,7 @@ elif map_mode == (
     ] = 220
 
 
-elif map_mode == (
-    "Dissolved Oxygen"
-):
+elif map_mode == "Dissolved Oxygen":
 
     normalised = scaled(
         map_data[
@@ -4924,9 +5795,7 @@ elif map_mode == (
     )
 
 
-elif map_mode == (
-    "Bathymetry"
-):
+elif map_mode == "Bathymetry":
 
     normalised = scaled(
         map_data[
@@ -4974,9 +5843,7 @@ elif map_mode == (
     )
 
 
-elif map_mode == (
-    "Distance from Coast"
-):
+elif map_mode == "Distance from Coast":
 
     normalised = scaled(
         map_data[
@@ -5059,7 +5926,9 @@ else:
     normalised = (
 
         (
+
             values
+
             /
             spread
         )
@@ -5101,100 +5970,77 @@ else:
     )
 
 
-map_data[
-    "hsi_display"
-] = (
-    map_data[
-        "hsi"
-    ]
-    .round(
+display_columns = [
+
+    (
+        "hsi",
+        "hsi_display",
         2
-    )
-)
+    ),
 
-
-map_data[
-    "temperature_display"
-] = (
-    map_data[
-        "temperature"
-    ]
-    .round(
+    (
+        "temperature",
+        "temperature_display",
         2
-    )
-)
+    ),
 
-
-map_data[
-    "salinity_display"
-] = (
-    map_data[
-        "salinity"
-    ]
-    .round(
+    (
+        "salinity",
+        "salinity_display",
         2
-    )
-)
+    ),
 
-
-map_data[
-    "oxygen_display"
-] = (
-    map_data[
-        "oxygen_ml_l"
-    ]
-    .round(
+    (
+        "oxygen_ml_l",
+        "oxygen_display",
         2
-    )
-)
+    ),
 
-
-map_data[
-    "depth_display"
-] = (
-    map_data[
-        "water_depth_m"
-    ]
-    .round(
+    (
+        "water_depth_m",
+        "depth_display",
         0
-    )
-)
+    ),
 
+    (
+        "distance_coast_km",
+        "coast_km_display",
+        2
+    ),
 
-map_data[
-    "coast_km_display"
-] = (
-    map_data[
-        "distance_coast_km"
-    ]
-    .round(
+    (
+        "distance_coast_nm",
+        "coast_nm_display",
+        2
+    ),
+
+    (
+        "sst_anomaly",
+        "anomaly_display",
         2
     )
-)
+]
 
 
-map_data[
-    "coast_nm_display"
-] = (
+for (
+    source_column,
+    display_column,
+    decimals
+) in display_columns:
+
+
     map_data[
-        "distance_coast_nm"
-    ]
-    .round(
-        2
-    )
-)
+        display_column
+    ] = (
 
+        map_data[
+            source_column
+        ]
 
-map_data[
-    "anomaly_display"
-] = (
-    map_data[
-        "sst_anomaly"
-    ]
-    .round(
-        2
+        .round(
+            decimals
+        )
     )
-)
 
 
 ocean_layer = pdk.Layer(
@@ -5325,7 +6171,175 @@ st.pydeck_chart(
 
 
 # ============================================================
-# HIGHEST RELATIVE HABITAT
+# OXYCLINE STATUS
+# ============================================================
+
+st.subheader(
+    "🫧 Seabed-Constrained Oxycline"
+)
+
+
+raw_oxycline = best.get(
+    "raw_oxycline_depth_m",
+    np.nan
+)
+
+
+local_oxycline = best.get(
+    "oxycline_depth_m",
+    np.nan
+)
+
+
+local_maximum = best.get(
+    "local_profile_max_depth_m",
+    np.nan
+)
+
+
+local_levels = best.get(
+    "local_profile_levels",
+    np.nan
+)
+
+
+local_gap = best.get(
+    "local_depth_gap_m",
+    np.nan
+)
+
+
+validation_status = str(
+    best.get(
+        "oxycline_validation_status",
+        "Unavailable"
+    )
+)
+
+
+oxycline1, oxycline2, oxycline3, oxycline4 = (
+    st.columns(
+        4
+    )
+)
+
+
+oxycline1.metric(
+
+    "Raw Full-Profile Oxycline",
+
+    (
+        f"{raw_oxycline:.1f} m"
+
+        if pd.notna(
+            raw_oxycline
+        )
+
+        else
+
+        "Not detected"
+    )
+)
+
+
+oxycline2.metric(
+    "Local GEBCO Water Depth",
+    f"{best['water_depth_m']:.1f} m"
+)
+
+
+oxycline3.metric(
+
+    "Local Oxycline",
+
+    (
+        f"{local_oxycline:.1f} m"
+
+        if pd.notna(
+            local_oxycline
+        )
+
+        else
+
+        "Not reached"
+    )
+)
+
+
+oxycline4.metric(
+    "HSI Weight",
+    "Not included"
+)
+
+
+detail1, detail2, detail3 = (
+    st.columns(
+        3
+    )
+)
+
+
+detail1.metric(
+
+    "Deepest BGC Level Used",
+
+    (
+        f"{local_maximum:.1f} m"
+
+        if pd.notna(
+            local_maximum
+        )
+
+        else
+
+        "Unavailable"
+    )
+)
+
+
+detail2.metric(
+
+    "BGC Levels Inside Water Column",
+
+    (
+        f"{int(local_levels)}"
+
+        if pd.notna(
+            local_levels
+        )
+
+        else
+
+        "Unavailable"
+    )
+)
+
+
+detail3.metric(
+
+    "Unsampled Gap to Seabed",
+
+    (
+        f"{local_gap:.1f} m"
+
+        if pd.notna(
+            local_gap
+        )
+
+        else
+
+        "Unavailable"
+    )
+)
+
+
+st.info(
+    validation_status
+)
+
+
+# ============================================================
+# HIGHEST HABITAT / REFERENCE
 # ============================================================
 
 st.subheader(
@@ -5379,224 +6393,8 @@ zone5.metric(
 )
 
 
-# ============================================================
-# OXYCLINE VALIDATION
-# ============================================================
-
 st.subheader(
-    "🫧 Seabed-Constrained Oxycline — retained from V1.4"
-)
-
-
-raw_oxycline = best.get(
-    "raw_oxycline_depth_m",
-    np.nan
-)
-
-
-local_oxycline = best.get(
-    "oxycline_depth_m",
-    np.nan
-)
-
-
-local_max_model_depth = best.get(
-    "local_profile_max_depth_m",
-    np.nan
-)
-
-
-local_levels = best.get(
-    "local_profile_levels",
-    np.nan
-)
-
-
-local_gap = best.get(
-    "local_depth_gap_m",
-    np.nan
-)
-
-
-validation_status = str(
-    best.get(
-        "oxycline_validation_status",
-        "Unavailable"
-    )
-)
-
-
-raw_text = (
-
-    f"{raw_oxycline:.1f} m"
-
-    if pd.notna(
-        raw_oxycline
-    )
-
-    else
-
-    "Not detected"
-)
-
-
-local_text = (
-
-    f"{local_oxycline:.1f} m"
-
-    if pd.notna(
-        local_oxycline
-    )
-
-    else
-
-    "Not reached"
-)
-
-
-oxycline1, oxycline2, oxycline3, oxycline4 = (
-    st.columns(
-        4
-    )
-)
-
-
-oxycline1.metric(
-    "Raw Full-Profile Oxycline",
-    raw_text
-)
-
-
-oxycline2.metric(
-    "Local GEBCO Water Depth",
-    f"{best['water_depth_m']:.1f} m"
-)
-
-
-oxycline3.metric(
-    "Local Oxycline",
-    local_text
-)
-
-
-oxycline4.metric(
-    "HSI Weight",
-    "Not included"
-)
-
-
-detail1, detail2, detail3 = (
-    st.columns(
-        3
-    )
-)
-
-
-detail1.metric(
-
-    "Deepest BGC Level Used",
-
-    (
-        f"{local_max_model_depth:.1f} m"
-
-        if pd.notna(
-            local_max_model_depth
-        )
-
-        else
-
-        "Unavailable"
-    )
-)
-
-
-detail2.metric(
-
-    "BGC Levels Inside Water Column",
-
-    (
-        f"{int(local_levels)}"
-
-        if pd.notna(
-            local_levels
-        )
-
-        else
-
-        "Unavailable"
-    )
-)
-
-
-detail3.metric(
-
-    "Unsampled Gap to Seabed",
-
-    (
-        f"{local_gap:.1f} m"
-
-        if pd.notna(
-            local_gap
-        )
-
-        else
-
-        "Unavailable"
-    )
-)
-
-
-if pd.notna(
-    local_oxycline
-):
-
-    st.success(
-        validation_status
-    )
-
-
-else:
-
-    st.info(
-        validation_status
-    )
-
-
-if (
-    pd.notna(
-        raw_oxycline
-    )
-
-    and
-
-    float(
-        raw_oxycline
-    )
-    >
-    float(
-        best[
-            "water_depth_m"
-        ]
-    )
-):
-
-    st.warning(
-
-        f"For transparency, the full coarse BGC profile "
-        f"produces a raw crossing at "
-        f"{float(raw_oxycline):.1f} m, but the local "
-        f"water depth is only "
-        f"{float(best['water_depth_m']):.1f} m. "
-        f"The below-seabed part is excluded."
-    )
-
-
-# ============================================================
-# HABITAT REFERENCE
-# ============================================================
-
-st.subheader(
-    "🐟 Why is this habitat considered suitable?"
+    "🐟 Current MVP Habitat Reference"
 )
 
 
@@ -5648,22 +6446,17 @@ reference4.metric(
 )
 
 
-st.caption(
-    f"Seasonal reference basis: "
-    f"{reference['reference_basis']}"
-)
-
-
 st.warning(
-    "V1.5 still calculates HSI only from temperature, "
-    "salinity and surface dissolved oxygen. Month/season, "
-    "bathymetry, distance from coast and local oxycline depth "
-    "remain additional predictors without fixed HSI weights."
+    "The temporary HSI still uses only temperature, "
+    "salinity and surface dissolved oxygen. Bathymetry, "
+    "distance from coast, oxycline and month/season remain "
+    "independent predictors until historical observations "
+    "are prepared for model training."
 )
 
 
 # ============================================================
-# FORECAST PROCESSING
+# FORECAST / HABITAT SHIFT
 # ============================================================
 
 forecast_centres = []
@@ -5813,26 +6606,6 @@ for forecast_date in available_dates:
                     ]
                 ),
 
-            "Month sin":
-                round(
-                    float(
-                        best_forecast[
-                            "month_sin"
-                        ]
-                    ),
-                    3
-                ),
-
-            "Month cos":
-                round(
-                    float(
-                        best_forecast[
-                            "month_cos"
-                        ]
-                    ),
-                    3
-                ),
-
             "Highest HSI":
                 round(
                     float(
@@ -5903,29 +6676,6 @@ for forecast_date in available_dates:
                     2
                 ),
 
-            "Raw Oxycline m":
-                (
-
-                    round(
-                        float(
-                            best_forecast[
-                                "raw_oxycline_depth_m"
-                            ]
-                        ),
-                        1
-                    )
-
-                    if pd.notna(
-                        best_forecast[
-                            "raw_oxycline_depth_m"
-                        ]
-                    )
-
-                    else
-
-                    None
-                ),
-
             "Local Oxycline m":
                 (
 
@@ -5947,13 +6697,6 @@ for forecast_date in available_dates:
                     else
 
                     None
-                ),
-
-            "Oxycline Status":
-                str(
-                    best_forecast[
-                        "oxycline_validation_status"
-                    ]
                 ),
 
             "SST Anomaly °C":
@@ -6047,10 +6790,6 @@ for forecast_date in available_dates:
         }
     )
 
-
-# ============================================================
-# HABITAT SHIFT
-# ============================================================
 
 st.subheader(
     "🧭 Predicted Habitat Shift"
@@ -6220,45 +6959,31 @@ if len(
     )
 
 
-    if north_km > 0:
+    if north_km >= 0:
 
         north_south_text = (
             f"{abs(north_km):.2f} km North"
         )
 
 
-    elif north_km < 0:
+    else:
 
         north_south_text = (
             f"{abs(north_km):.2f} km South"
         )
 
 
-    else:
-
-        north_south_text = (
-            "0.00 km"
-        )
-
-
-    if east_km > 0:
+    if east_km >= 0:
 
         east_west_text = (
             f"{abs(east_km):.2f} km East"
         )
 
 
-    elif east_km < 0:
-
-        east_west_text = (
-            f"{abs(east_km):.2f} km West"
-        )
-
-
     else:
 
         east_west_text = (
-            "0.00 km"
+            f"{abs(east_km):.2f} km West"
         )
 
 
@@ -6445,7 +7170,7 @@ if (
 ):
 
 
-    shift_path_data = [
+    shift_path = [
 
         {
             "path":
@@ -6478,49 +7203,7 @@ if (
     ]
 
 
-    start_marker = pd.DataFrame(
-
-        [
-            {
-                "label":
-                    "Current habitat centre",
-
-                "lat":
-                    start[
-                        "lat"
-                    ],
-
-                "lon":
-                    start[
-                        "lon"
-                    ]
-            }
-        ]
-    )
-
-
-    end_marker = pd.DataFrame(
-
-        [
-            {
-                "label":
-                    "+72 h habitat centre",
-
-                "lat":
-                    end[
-                        "lat"
-                    ],
-
-                "lon":
-                    end[
-                        "lon"
-                    ]
-            }
-        ]
-    )
-
-
-    label_points = pd.DataFrame(
+    marker_data = pd.DataFrame(
 
         [
             {
@@ -6535,7 +7218,16 @@ if (
                 "lon":
                     start[
                         "lon"
-                    ]
+                    ],
+
+                "r":
+                    30,
+
+                "g":
+                    190,
+
+                "b":
+                    90
             },
 
             {
@@ -6550,7 +7242,16 @@ if (
                 "lon":
                     end[
                         "lon"
-                    ]
+                    ],
+
+                "r":
+                    255,
+
+                "g":
+                    145,
+
+                "b":
+                    40
             }
         ]
     )
@@ -6561,7 +7262,7 @@ if (
         "PathLayer",
 
         data=
-            shift_path_data,
+            shift_path,
 
         get_path=
             "path",
@@ -6585,12 +7286,12 @@ if (
     )
 
 
-    start_layer = pdk.Layer(
+    marker_layer = pdk.Layer(
 
         "ScatterplotLayer",
 
         data=
-            start_marker,
+            marker_data,
 
         get_position=
             [
@@ -6600,25 +7301,11 @@ if (
 
         get_fill_color=
             [
-                30,
-                190,
-                90,
+                "r",
+                "g",
+                "b",
                 240
             ],
-
-        get_line_color=
-            [
-                255,
-                255,
-                255,
-                255
-            ],
-
-        stroked=
-            True,
-
-        line_width_min_pixels=
-            2,
 
         get_radius=
             500,
@@ -6631,58 +7318,12 @@ if (
     )
 
 
-    end_layer = pdk.Layer(
-
-        "ScatterplotLayer",
-
-        data=
-            end_marker,
-
-        get_position=
-            [
-                "lon",
-                "lat"
-            ],
-
-        get_fill_color=
-            [
-                255,
-                145,
-                40,
-                240
-            ],
-
-        get_line_color=
-            [
-                255,
-                255,
-                255,
-                255
-            ],
-
-        stroked=
-            True,
-
-        line_width_min_pixels=
-            2,
-
-        get_radius=
-            500,
-
-        radius_min_pixels=
-            8,
-
-        pickable=
-            True
-    )
-
-
-    label_layer = pdk.Layer(
+    text_layer = pdk.Layer(
 
         "TextLayer",
 
         data=
-            label_points,
+            marker_data,
 
         get_position=
             [
@@ -6708,10 +7349,7 @@ if (
             [
                 0,
                 -18
-            ],
-
-        pickable=
-            False
+            ]
     )
 
 
@@ -6752,50 +7390,22 @@ if (
                         2,
 
                     zoom=
-                        10.3,
-
-                    pitch=
-                        0
+                        10.3
                 ),
 
             layers=[
                 path_layer,
-                start_layer,
-                end_layer,
-                label_layer
-            ],
-
-            tooltip={
-                "html":
-                    "<b>{label}{name}</b>"
-            }
+                marker_layer,
+                text_layer
+            ]
         ),
 
         use_container_width=True
     )
 
 
-    st.markdown(
-
-        f"**E-AWARE interpretation:** "
-        f"The centre of relatively suitable habitat "
-        f"is forecast to shift "
-        f"**{distance_text} {direction_text.lower()}**. "
-        f"Relative to the coastline, it is predicted "
-        f"to be **{coastal_interpretation.lower()}**."
-    )
-
-
-else:
-
-    st.warning(
-        "Not enough forecast information "
-        "is available to draw the habitat-shift map."
-    )
-
-
 # ============================================================
-# FORECAST TABLE
+# 72-HOUR FORECAST TABLE
 # ============================================================
 
 st.subheader(
@@ -6816,7 +7426,661 @@ st.dataframe(
 
 
 # ============================================================
-# SMS
+# V2 STEP 1 — HISTORICAL OBSERVATIONS UI
+# ============================================================
+
+st.divider()
+
+
+st.header(
+    "🧬 V2 Step 1 — Historical Anchoveta Observations"
+)
+
+
+st.write(
+    "This stage prepares historical anchoveta observations "
+    "for later model training. It validates the file structure, "
+    "dates, coordinates and presence/absence information. "
+    "It does not train XGBoost, a Generalized Additive Model, "
+    "or any other habitat model yet."
+)
+
+
+st.download_button(
+
+    "⬇️ Download CSV structure example",
+
+    data=
+        historical_template_csv(),
+
+    file_name=
+        "eaware_historical_anchoveta_template.csv",
+
+    mime=
+        "text/csv"
+)
+
+
+(
+    historical_raw,
+    historical_source
+) = read_historical_source(
+    uploaded_historical
+)
+
+
+if historical_raw is None:
+
+
+    st.warning(
+        "No historical observation CSV is loaded yet. "
+        "Add the real data as "
+        "`data/imarpe_anchoveta_observations.csv` "
+        "in the GitHub repository, or upload a CSV "
+        "using the sidebar. E-AWARE will not create "
+        "fake historical fish observations."
+    )
+
+
+    st.markdown(
+        "**Minimum required fields:** "
+        "date, latitude, longitude"
+    )
+
+
+    st.markdown(
+        "**For supervised presence/absence training:** "
+        "the file must also contain either a "
+        "presence/absence field or a defensible abundance "
+        "field from which presence can be derived."
+    )
+
+
+else:
+
+
+    st.caption(
+        f"Historical source currently loaded: "
+        f"**{historical_source}**"
+    )
+
+
+    try:
+
+
+        (
+            historical,
+            historical_metadata
+        ) = standardise_historical_observations(
+            historical_raw
+        )
+
+
+        history1, history2, history3, history4, history5 = (
+            st.columns(
+                5
+            )
+        )
+
+
+        history1.metric(
+            "Raw Rows",
+            f"{historical_metadata['raw_rows']:,}"
+        )
+
+
+        history2.metric(
+            "Usable Rows",
+            f"{historical_metadata['usable_rows']:,}"
+        )
+
+
+        history3.metric(
+            "Presence Known",
+            f"{historical_metadata['presence_known_rows']:,}"
+        )
+
+
+        history4.metric(
+            "Inside E-AWARE Area",
+            f"{historical_metadata['study_area_rows']:,}"
+        )
+
+
+        history5.metric(
+
+            "Training Ready",
+
+            (
+                "Yes"
+
+                if historical_metadata[
+                    "training_ready"
+                ]
+
+                else
+
+                "No"
+            )
+        )
+
+
+        st.caption(
+            "Presence handling: "
+            f"{historical_metadata['presence_source']}"
+        )
+
+
+        mapping_rows = []
+
+
+        for (
+            canonical,
+            source_column
+        ) in historical_metadata[
+            "mapping"
+        ].items():
+
+
+            mapping_rows.append(
+
+                {
+                    "E-AWARE field":
+                        canonical,
+
+                    "Detected source column":
+                        (
+                            source_column
+
+                            if source_column
+                            is not None
+
+                            else
+
+                            "Not detected"
+                        )
+                }
+            )
+
+
+        st.markdown(
+            "#### Detected Column Mapping"
+        )
+
+
+        st.dataframe(
+
+            pd.DataFrame(
+                mapping_rows
+            ),
+
+            use_container_width=True,
+
+            hide_index=True
+        )
+
+
+        if (
+            historical_metadata[
+                "invalid_date_rows"
+            ]
+            >
+            0
+
+            or
+
+            historical_metadata[
+                "invalid_coordinate_rows"
+            ]
+            >
+            0
+        ):
+
+
+            st.warning(
+
+                "Validation excluded "
+                f"{historical_metadata['invalid_date_rows']} "
+                "rows with invalid dates and "
+                f"{historical_metadata['invalid_coordinate_rows']} "
+                "rows with invalid coordinates."
+            )
+
+
+        if historical_metadata[
+            "study_area_rows"
+        ] == 0:
+
+
+            st.warning(
+                "The loaded historical file contains no "
+                "validated records inside the current "
+                "E-AWARE Lobitos study bounding box. "
+                "This is not treated as fish absence. "
+                "It only means no observations in the "
+                "loaded file intersect this current box."
+            )
+
+
+        if historical_metadata[
+            "presence_known_rows"
+        ] == 0:
+
+
+            st.warning(
+                "No presence/absence target could be identified. "
+                "E-AWARE will not train a supervised presence model "
+                "from this file until a defensible target variable "
+                "is available."
+            )
+
+
+        elif (
+            historical[
+                "presence"
+            ]
+            .dropna()
+            .nunique()
+            <
+            2
+        ):
+
+
+            st.warning(
+                "The loaded data contains only one presence class. "
+                "A presence/absence classifier requires both positive "
+                "and negative observations, or a separately justified "
+                "presence-background design."
+            )
+
+
+        else:
+
+
+            presence_counts = (
+
+                historical[
+                    "presence"
+                ]
+
+                .value_counts(
+                    dropna=True
+                )
+
+                .sort_index()
+            )
+
+
+            absence_count = int(
+                presence_counts.get(
+                    0.0,
+                    0
+                )
+            )
+
+
+            presence_count = int(
+                presence_counts.get(
+                    1.0,
+                    0
+                )
+            )
+
+
+            known_total = max(
+
+                absence_count
+                +
+                presence_count,
+
+                1
+            )
+
+
+            presence1, presence2, presence3 = (
+                st.columns(
+                    3
+                )
+            )
+
+
+            presence1.metric(
+                "Observed Absence",
+                f"{absence_count:,}"
+            )
+
+
+            presence2.metric(
+                "Observed Presence",
+                f"{presence_count:,}"
+            )
+
+
+            presence3.metric(
+
+                "Presence Rate",
+
+                (
+                    f"{100 * presence_count / known_total:.1f}%"
+                )
+            )
+
+
+        if not historical.empty:
+
+
+            historical_map = (
+
+                historical
+
+                .dropna(
+                    subset=[
+                        "lat",
+                        "lon"
+                    ]
+                )
+
+                .copy()
+            )
+
+
+            historical_map[
+                "presence_label"
+            ] = (
+
+                historical_map[
+                    "presence"
+                ]
+
+                .map(
+                    {
+                        1.0:
+                            "Presence",
+
+                        0.0:
+                            "Absence"
+                    }
+                )
+
+                .fillna(
+                    "Unknown"
+                )
+            )
+
+
+            historical_map[
+                "r"
+            ] = np.where(
+
+                historical_map[
+                    "presence"
+                ]
+                ==
+                1,
+
+                230,
+
+                np.where(
+
+                    historical_map[
+                        "presence"
+                    ]
+                    ==
+                    0,
+
+                    60,
+
+                    150
+                )
+            )
+
+
+            historical_map[
+                "g"
+            ] = np.where(
+
+                historical_map[
+                    "presence"
+                ]
+                ==
+                1,
+
+                90,
+
+                np.where(
+
+                    historical_map[
+                        "presence"
+                    ]
+                    ==
+                    0,
+
+                    120,
+
+                    150
+                )
+            )
+
+
+            historical_map[
+                "b"
+            ] = np.where(
+
+                historical_map[
+                    "presence"
+                ]
+                ==
+                1,
+
+                60,
+
+                np.where(
+
+                    historical_map[
+                        "presence"
+                    ]
+                    ==
+                    0,
+
+                    220,
+
+                    150
+                )
+            )
+
+
+            historical_map[
+                "date_display"
+            ] = (
+
+                historical_map[
+                    "date"
+                ]
+
+                .dt.strftime(
+                    "%Y-%m-%d"
+                )
+            )
+
+
+            st.markdown(
+                "#### Historical Observation Map"
+            )
+
+
+            historical_layer = pdk.Layer(
+
+                "ScatterplotLayer",
+
+                data=
+                    historical_map,
+
+                get_position=
+                    [
+                        "lon",
+                        "lat"
+                    ],
+
+                get_fill_color=
+                    [
+                        "r",
+                        "g",
+                        "b",
+                        175
+                    ],
+
+                get_radius=
+                    4500,
+
+                radius_min_pixels=
+                    3,
+
+                radius_max_pixels=
+                    10,
+
+                pickable=
+                    True
+            )
+
+
+            st.pydeck_chart(
+
+                pdk.Deck(
+
+                    map_style=
+                        BASEMAP_URL,
+
+                    initial_view_state=
+                        pdk.ViewState(
+
+                            latitude=
+                                -9.5,
+
+                            longitude=
+                                -78.5,
+
+                            zoom=
+                                4.6
+                        ),
+
+                    layers=[
+                        historical_layer
+                    ],
+
+                    tooltip={
+
+                        "html":
+
+                            "<b>Historical anchoveta "
+                            "observation</b><br/>"
+                            "Date: {date_display}<br/>"
+                            "Status: {presence_label}<br/>"
+                            "Latitude: {lat}<br/>"
+                            "Longitude: {lon}"
+                    }
+                ),
+
+                use_container_width=True
+            )
+
+
+            study_historical = historical[
+
+                historical[
+                    "within_eaware_study_area"
+                ]
+
+            ].copy()
+
+
+            st.markdown(
+                "#### Historical Records Inside "
+                "Current E-AWARE Study Area"
+            )
+
+
+            if study_historical.empty:
+
+
+                st.info(
+                    "No validated historical records "
+                    "from the loaded file fall inside "
+                    "the current study box."
+                )
+
+
+            else:
+
+
+                display_columns = [
+
+                    "date",
+                    "lat",
+                    "lon",
+                    "presence",
+                    "abundance",
+                    "length_cm",
+                    "austral_season"
+                ]
+
+
+                st.dataframe(
+
+                    study_historical[
+                        display_columns
+                    ]
+
+                    .sort_values(
+                        "date"
+                    ),
+
+                    use_container_width=True,
+
+                    hide_index=True
+                )
+
+
+        if historical_metadata[
+            "training_ready"
+        ]:
+
+
+            st.success(
+                "Historical observations passed the "
+                "basic V2 Step 1 structure checks. "
+                "The next stage can match each historical "
+                "observation to environmental predictors "
+                "before any model is trained."
+            )
+
+
+        else:
+
+
+            st.info(
+                "V2 Step 1 ingestion is working, but "
+                "this dataset is not yet ready for "
+                "supervised presence/absence model training."
+            )
+
+
+    except Exception as historical_error:
+
+
+        st.error(
+            "Historical observation validation failed."
+        )
+
+
+        st.code(
+            str(
+                historical_error
+            )
+        )
+
+
+# ============================================================
+# SMS PREVIEW
 # ============================================================
 
 st.subheader(
@@ -6889,15 +8153,8 @@ st.text_area(
 )
 
 
-st.caption(
-    "V1.5 keeps month/season and local oxycline out "
-    "of the fisher-facing SMS and HSI until the "
-    "trained habitat-model stage."
-)
-
-
 # ============================================================
-# SOURCES / TRANSPARENCY
+# DATA SOURCES / TRANSPARENCY
 # ============================================================
 
 st.subheader(
@@ -6932,59 +8189,36 @@ source_table = pd.DataFrame(
 
         {
             "Source":
-                "Derived from Copernicus BGC + local GEBCO depth",
-
-            "Status":
-                "Validation predictor",
-
-            "Use":
-                "Seabed-constrained 1 mL/L oxycline depth"
-        },
-
-        {
-            "Source":
                 "GEBCO_2026 via Ocean Data Bank API",
 
             "Status":
                 "Static terrain model",
 
             "Use":
-                "Bathymetry, land filtering and local water-column limit"
+                "Bathymetry and local water-column limit"
         },
 
         {
             "Source":
-                "NOAA NCEI High-Res Coastline",
+                "NOAA NCEI coastline",
 
             "Status":
                 "Static coastline geometry",
 
             "Use":
-                "Distance from coast in km and nautical miles"
+                "Nearest-coast distance"
         },
 
         {
             "Source":
-                "Castillo et al. (2019)",
+                "Historical anchoveta CSV",
 
             "Status":
-                "Scientific reference",
+                "V2 input when supplied",
 
             "Use":
-                "Summer/winter anchoveta ranges and "
-                "autumn/spring transition treatment"
-        },
-
-        {
-            "Source":
-                "Hill et al. (2026)",
-
-            "Status":
-                "Scientific reference",
-
-            "Use":
-                "Supports month, bathymetry, coast distance "
-                "and 1 mL/L oxycline as habitat predictors"
+                "Observed presence/absence or abundance "
+                "for later model training"
         },
 
         {
@@ -6992,21 +8226,11 @@ source_table = pd.DataFrame(
                 "IMARPE",
 
             "Status":
-                "Scientific observations",
+                "Scientific observation source",
 
             "Use":
-                "Future training / validation"
-        },
-
-        {
-            "Source":
-                "PRODUCE",
-
-            "Status":
-                "Regulatory",
-
-            "Use":
-                "Future protection / closure layer"
+                "Target source for historical "
+                "anchoveta observations"
         }
     ]
 )
@@ -7027,7 +8251,7 @@ st.dataframe(
 # ============================================================
 
 st.subheader(
-    "🧪 V1.5 Model Status"
+    "🧪 V2 Step 1 Model Status"
 )
 
 
@@ -7039,101 +8263,35 @@ status1, status2 = (
 
 
 status1.success(
-    "Month and austral season are now explicit predictors, "
-    "with cyclic month sin/cos features ready for future "
-    "model training."
+    "E-AWARE can now ingest and validate a historical "
+    "anchoveta CSV without changing the live V1.5 HSI."
 )
 
 
 status2.warning(
-    "V1.5 does not manually weight month, bathymetry, "
-    "coast distance or oxycline in the HSI. Their "
-    "relationships will be learned from historical "
-    "anchoveta observations in V2."
+    "No machine-learning model is trained in V2 Step 1. "
+    "Historical fish observations must first be validated "
+    "and matched to environmental predictors at the same "
+    "date and location."
 )
 
 
-# ============================================================
-# LIMITATIONS
-# ============================================================
-
 with st.expander(
-    "⚙️ MVP V1.5 Limitations"
+    "⚙️ V2 Step 1 Limitations"
 ):
 
     st.markdown(
         """
-### Current HSI inputs
-
-- Sea temperature
-- Salinity
-- Surface dissolved oxygen
-
-### Additional predictors / context
-
-- SST anomaly
-- GEBCO bathymetry
-- Distance from coast
-- Seabed-constrained oxycline depth
-- Calendar month
-- Austral season
-- Cyclic month sin/cos encoding
-
-### V1.5 temporal treatment
-
-Month is stored explicitly as a future habitat-model predictor.
-
-Month is also converted to sine and cosine features to preserve
-the cyclic structure of the calendar. This means months near
-the year boundary remain close to one another numerically.
-
-The cyclic encoding is an E-AWARE implementation choice and
-is not itself a biological suitability threshold.
-
-Summer and winter retain the published environmental reference
-ranges already used by the MVP.
-
-Autumn and spring are treated as transition periods. E-AWARE
-does not invent separate autumn or spring environmental limits.
-
-### Oxycline treatment
-
-The nearest Copernicus BGC oxygen profile is constrained to
-depth levels that lie above the local GEBCO seabed.
-
-Below-seabed BGC values therefore cannot create a local
-oxycline estimate.
-
-### Resolution limitation
-
-Copernicus BGC is coarser than the E-AWARE physics grid.
-
-Multiple finer E-AWARE cells can therefore use the same BGC
-oxygen profile while having different local GEBCO depths.
-
-### HSI
-
-The temporary HSI remains:
-
-**Temperature + Salinity + Surface Oxygen**
-
-with equal weights.
-
-Month/season, bathymetry, distance from coast and oxycline
-remain outside the HSI until historical observations are used
-for model training.
-
-### Still not integrated
-
-- Historical IMARPE anchoveta observations
-- Trained habitat model
-- Learned temporal effects
-- Oxycline model weighting
-- Oxycline map layer
-- Chlorophyll
-- Ocean currents
-- Juvenile protection
-- Fishing closures
+- E-AWARE does not fabricate historical fish observations.
+- The public IMARPE pages used by the project describe anchoveta monitoring, but this app does not assume that those pages expose a stable machine-readable historical Application Programming Interface (API).
+- A historical Comma-Separated Values (CSV) file must therefore be supplied from an authorised and traceable source before training.
+- Presence is used directly when a valid presence field exists.
+- If only abundance is supplied, V2 Step 1 can derive a provisional binary target as abundance greater than zero. This must still be documented and justified before final model training.
+- Records outside the current Lobitos study box are retained for validation and future model development.
+- Lack of historical records inside the current study box is never treated as biological absence.
+- The temporary live Habitat Suitability Index (HSI) still uses temperature, salinity and surface dissolved oxygen only.
+- Bathymetry, distance from coast, oxycline and temporal variables remain independent future predictors.
+- V2 Step 2 should match each historical observation to environmental predictors at the same spatial and temporal coordinates before comparing candidate habitat models.
         """
     )
 
@@ -7146,8 +8304,8 @@ st.divider()
 
 
 st.caption(
-    "E-AWARE MVP V1.5 | "
-    "El Niño Adaptive Fisheries Intelligence | "
+    "E-AWARE V2 Step 1 | "
+    "Historical observation ingestion and validation | "
     "Decision-support research prototype"
 )
 
