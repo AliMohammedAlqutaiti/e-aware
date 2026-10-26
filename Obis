@@ -1,0 +1,109 @@
+        if col not in df.columns:
+            df[col] = None
+
+    # Date: take first part of ranges; require a full YYYY-MM-DD.
+    first = df["eventDate"].astype(str).str.split("/").str[0].str.strip()
+    full = first.str.match(r"^\d{4}-\d{2}-\d{2}")
+    parsed = pd.to_datetime(first.str[:10], errors="coerce")
+    good_date = full & parsed.notna()
+    stats["dropped_bad_date"] = int((~good_date).sum())
+
+    lat = pd.to_numeric(df["decimalLatitude"], errors="coerce")
+    lon = pd.to_numeric(df["decimalLongitude"], errors="coerce")
+    good_xy = lat.between(-90, 90) & lon.between(-180, 180)
+    stats["dropped_bad_coords"] = int((good_date & ~good_xy).sum())
+
+    keep = good_date & good_xy
+    out = pd.DataFrame({
+        "date": parsed[keep].dt.strftime("%Y-%m-%d"),
+        "latitude": lat[keep].round(6),
+        "longitude": lon[keep].round(6),
+        "presence": [
+            derive_presence(a, s)
+            for a, s in zip(
+                df.loc[keep, "absence"],
+                df.loc[keep, "occurrenceStatus"]
+            )
+        ],
+        # Compatibility field only. For OBIS this is dataset-level provenance,
+        # NOT proof of a cruise/survey identifier.
+        "survey_id": df.loc[keep, "dataset_id"].astype(str),
+        "survey_id_basis": "OBIS dataset_id fallback — not a verified cruise/survey ID",
+        "dataset_id": df.loc[keep, "dataset_id"].astype(str),
+        "dataset_name": df.loc[keep, "datasetName"],
+        "event_id": df.loc[keep, "eventID"],
+        "occurrence_id": df.loc[keep, "occurrenceID"],
+        "occurrence_status": df.loc[keep, "occurrenceStatus"],
+        "obis_absence_flag": df.loc[keep, "absence"],
+        "obis_id": df.loc[keep, "id"],
+        "basis_of_record": df.loc[keep, "basisOfRecord"],
+        "individual_count": pd.to_numeric(
+            df.loc[keep, "individualCount"], errors="coerce"),
+        "coordinate_uncertainty_m": pd.to_numeric(
+            df.loc[keep, "coordinateUncertaintyInMeters"], errors="coerce"),
+        "obis_stage": stage_name,
+    })
+
+    out["presence"] = pd.array(out["presence"], dtype="Int64")
+
+    before = len(out)
+    out = out.drop_duplicates(subset=["date", "latitude", "longitude", "presence", "survey_id"])
+    stats["duplicates_removed"] = before - len(out)
+    out = out.sort_values(["date", "latitude", "longitude"]).reset_index(drop=True)
+
+    absence_df = out[out["presence"] == 0].copy()
+    stats["presence"] = int((out["presence"] == 1).sum())
+    stats["absence"] = int((out["presence"] == 0).sum())
+    stats["presence_unknown"] = int(out["presence"].isna().sum())
+    return out, absence_df, stats
+
+
+def main():
+    OUT_DIR.mkdir(exist_ok=True)
+    log_lines = []
+
+    def log(msg):
+        print(msg)
+        log_lines.append(msg)
+
+    log(f"E-AWARE OBIS fetch — {datetime.now(timezone.utc).isoformat()}")
+    log(f"Taxon: {SCIENTIFIC_NAME}   API: {API}   absence=include")
+
+    all_absences = []
+    for name, box in STAGES.items():
+        log(f"\n== {name}: lon {box[0]}..{box[1]}, lat {box[2]}..{box[3]} ==")
+        try:
+            records, total, geometry = fetch_stage(box, True, log)
+        except Exception as exc:
+            log(f"  FAILED: {exc}")
+            continue
+        log(f"  geometry: {geometry}")
+        log(f"  OBIS reported total: {total}; downloaded: {len(records)}")
+        clean, absences, stats = transform_records(records, name)
+        log(f"  stats: {stats}")
+        if not clean.empty:
+            log(f"  date range: {clean['date'].min()} -> {clean['date'].max()}")
+            log("  records per dataset_id:")
+            for ds, n in clean["survey_id"].value_counts().head(15).items():
+                log(f"    {ds}: {n}")
+        path = OUT_DIR / f"obis_{name}.csv"
+        clean.to_csv(path, index=False)
+        log(f"  wrote {path}  ({len(clean)} rows)")
+        if not absences.empty:
+            all_absences.append(absences)
+
+    if all_absences:
+        pd.concat(all_absences).drop_duplicates().to_csv(
+            OUT_DIR / "obis_absence_review.csv", index=False)
+        log("\nOBIS-flagged absences found -> obis_absence_review.csv. "
+            "Check each source dataset's methodology before using them as training absences.")
+    else:
+        log("\nNo OBIS-flagged absences returned: presence-only data. "
+            "Use for pipeline testing, NOT supervised presence/absence training.")
+
+    (OUT_DIR / "obis_fetch_log.txt").write_text("\n".join(log_lines), encoding="utf-8")
+    log(f"\nLog saved to {OUT_DIR / 'obis_fetch_log.txt'}")
+
+
+if __name__ == "__main__":
+    sys.exit(main())
