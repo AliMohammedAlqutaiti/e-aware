@@ -19,8 +19,8 @@ st.set_page_config(page_title="E-AWARE", page_icon="🐟", layout="wide")
 st.title("🐟 E-AWARE")
 st.caption("El Niño Adaptive Fisheries Intelligence — V2 Step 3")
 st.info(
-    "V2 Step 3 adds a training-data quality-control audit to the validated "
-    "historical observation and environmental-matching pipeline. It still does not "
+    "V2 Step 3 adds a training-data quality-control audit to the anchoveta "
+    "observation and historical environmental-matching pipeline. It still does not "
     "train a machine-learning model."
 )
 
@@ -55,7 +55,8 @@ COASTLINE_QUERY_MARGIN_DEG = 0.75
 KM_PER_NAUTICAL_MILE = 1.852
 OXYGEN_MMOL_M3_TO_ML_L = 0.0223916
 OXYCLINE_THRESHOLD_ML_L = 1.0
-HISTORICAL_REPO_PATH = Path("data/imarpe_anchoveta_observations.csv")
+OBSERVATION_REPO_PATH = Path("data/anchoveta_observations.csv")
+LEGACY_OBSERVATION_REPO_PATH = Path("data/imarpe_anchoveta_observations.csv")
 
 # Engineering QC warning thresholds for nearest-grid matching.
 # These are diagnostic thresholds, not biological habitat thresholds.
@@ -3106,26 +3107,18 @@ def standardise_historical_observations(
         metadata
     )
 
-def read_historical_source(
-    uploaded_file
-):
-    if uploaded_file is not None:
-        return (
-            pd.read_csv(
-                uploaded_file
-            ),
-            "Uploaded CSV"
-        )
+def read_historical_source():
+    """Load the repository-managed anchoveta observation dataset automatically."""
 
-    if HISTORICAL_REPO_PATH.exists():
-        return (
-            pd.read_csv(
-                HISTORICAL_REPO_PATH
-            ),
-            str(
-                HISTORICAL_REPO_PATH
+    for path in (
+        OBSERVATION_REPO_PATH,
+        LEGACY_OBSERVATION_REPO_PATH,
+    ):
+        if path.exists():
+            return (
+                pd.read_csv(path),
+                str(path)
             )
-        )
 
     return (
         None,
@@ -3133,52 +3126,47 @@ def read_historical_source(
     )
 
 
-def historical_template_csv():
+def describe_observation_dataset(raw, source_path):
+    """Return transparent source/role labels without overstating provenance."""
 
-    template = pd.DataFrame(
-        [
-            {
-                "date":
-                    "2008-04-15",
-                "latitude":
-                    -4.45,
-                "longitude":
-                    -81.30,
-                "presence":
-                    1,
-                "abundance":
-                    120.0,
-                "length_cm":
-                    13.2
-            },
+    normalized = {
+        normalise_column_name(c)
+        for c in raw.columns
+    }
 
-            {
-                "date":
-                    "2008-04-15",
-                "latitude":
-                    -4.48,
-                "longitude":
-                    -81.38,
-                "presence":
-                    0,
-                "abundance":
-                    0.0,
-                "length_cm":
-                    ""
-            },
-        ]
+    is_obis = bool(
+        {
+            "obis_stage",
+            "obis_id",
+            "dataset_id",
+            "basis_of_record",
+        }
+        &
+        normalized
+    ) and (
+        "obis_stage" in normalized
+        or
+        "obis_id" in normalized
     )
 
-    return (
-        template
-        .to_csv(
-            index=False
-        )
-        .encode(
-            "utf-8"
-        )
-    )
+    if is_obis:
+        return {
+            "source_label": "OBIS interim anchoveta occurrence dataset",
+            "dataset_role": (
+                "Pipeline validation only — not the final supervised "
+                "presence/absence training dataset"
+            ),
+            "status_kind": "info",
+        }
 
+    return {
+        "source_label": "Repository-managed anchoveta observation dataset",
+        "dataset_role": (
+            "Candidate observation dataset — training suitability is determined "
+            "by the Step 3 quality-control audit"
+        ),
+        "status_kind": "info",
+    }
 
 
 # ============================================================
@@ -4920,19 +4908,26 @@ with st.sidebar:
     st.divider()
 
     st.markdown(
-        "### V2 Historical Data"
+        "### V2 Observation Data"
     )
 
-    uploaded_historical = st.file_uploader(
-        "Historical anchoveta CSV",
-        type=[
-            "csv"
-        ],
-        help=(
-            "A CSV upload overrides "
-            "data/imarpe_anchoveta_observations.csv "
-            "in the repository."
+    if (
+        OBSERVATION_REPO_PATH.exists()
+        or
+        LEGACY_OBSERVATION_REPO_PATH.exists()
+    ):
+        st.success(
+            "Repository observation dataset detected"
         )
+    else:
+        st.warning(
+            "No repository observation dataset detected"
+        )
+
+    st.caption(
+        "E-AWARE loads the repository dataset automatically. "
+        "Dataset replacement and large-scale preprocessing are handled "
+        "outside the live dashboard."
     )
 
 
@@ -6346,39 +6341,35 @@ st.dataframe(
 st.divider()
 
 st.header(
-    "🧬 V2 — Historical Anchoveta Data"
-)
-
-st.download_button(
-    "⬇️ Download CSV structure example",
-    data=
-        historical_template_csv(),
-    file_name=
-        "eaware_historical_anchoveta_template.csv",
-    mime=
-        "text/csv"
+    "🧬 V2 — Anchoveta Observation Dataset"
 )
 
 historical_raw, historical_source = (
-    read_historical_source(
-        uploaded_historical
-    )
+    read_historical_source()
 )
 
 if historical_raw is None:
 
     st.warning(
-        "No historical observation CSV is loaded yet. "
-        "Add real, traceable observations as "
-        "data/imarpe_anchoveta_observations.csv or upload a CSV. "
+        "No repository-managed anchoveta observation dataset is available. "
+        "Add a traceable dataset as data/anchoveta_observations.csv. "
         "E-AWARE will not create fake fish records."
     )
 
 else:
 
+    dataset_descriptor = describe_observation_dataset(
+        historical_raw,
+        historical_source
+    )
+
     st.caption(
-        f"Historical source currently loaded: "
-        f"**{historical_source}**"
+        f"Repository file: **{historical_source}**"
+    )
+
+    st.info(
+        f"**Dataset source:** {dataset_descriptor['source_label']}  \n"
+        f"**Dataset role:** {dataset_descriptor['dataset_role']}"
     )
 
     try:
@@ -7199,10 +7190,10 @@ source_table = pd.DataFrame(
 
         {
             "Source":
-                "Historical anchoveta CSV",
+                "Repository-managed anchoveta observations",
             "Use":
-                "Observed anchoveta target data when supplied "
-                "from a traceable source"
+                "Traceable fish-observation data for V2 pipeline validation "
+                "and, when scientifically suitable, future model training"
         },
     ]
 )
