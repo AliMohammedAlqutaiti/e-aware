@@ -4,3 +4,5 @@ __pycache__/
 *.nc
 *.zarr/
 .DS_Store
+data/processed/
+obis_output/
