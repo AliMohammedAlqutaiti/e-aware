@@ -6,3 +6,5 @@ pydeck
 xarray
 netCDF4
 requests
+scikit-learn
+joblib

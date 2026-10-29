@@ -6,3 +6,5 @@ __pycache__/
 .DS_Store
 data/processed/
 obis_output/
+data/models/
+data/public_occurrences/

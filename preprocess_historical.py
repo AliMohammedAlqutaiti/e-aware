@@ -451,6 +451,17 @@ def standardise(
         if source is not None:
             out[target] = raw[source].values
 
+    # Preserve presence-background modelling fields.
+    # pb_target=0 is BACKGROUND, not confirmed biological absence.
+    for passthrough in (
+        "sample_type",
+        "pb_target",
+        "source",
+    ):
+
+        if passthrough in raw.columns:
+            out[passthrough] = raw[passthrough].values
+
     out["source_row"] = np.arange(
         1,
         len(out) + 1,
