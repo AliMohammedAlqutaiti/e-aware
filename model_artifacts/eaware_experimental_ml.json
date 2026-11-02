@@ -1,0 +1,82 @@
+{
+  "model_name": "E-AWARE experimental conditional ML",
+  "role": "experimental_secondary_model",
+  "primary_operational_model": "literature_based_HSI",
+  "features": [
+    "historical_sst_c",
+    "historical_salinity_psu",
+    "historical_surface_o2_ml_l",
+    "oxycline_reached_before_seabed",
+    "oxycline_depth_when_reached_m"
+  ],
+  "scaler_mean": [
+    18.247189158080694,
+    34.88332950099207,
+    5.142850181635688,
+    0.7794117647058824,
+    28.557409929752584
+  ],
+  "scaler_scale": [
+    1.3922976523053434,
+    0.15178782946465186,
+    0.3875158853055213,
+    0.4146432994079907,
+    21.68883875691606
+  ],
+  "coefficients": [
+    -0.4234353016798987,
+    -1.3083427587193985,
+    0.02613073389126039,
+    0.9738909942821091,
+    -1.1614439372924554
+  ],
+  "training_anchors": 34,
+  "training_rows": 136,
+  "background_is_absence": false,
+  "score_interpretation": "relative used-vs-locally-available habitat suitability",
+  "probability_of_presence": false,
+  "training_ranges": {
+    "historical_sst_c": {
+      "min": 15.92416150867939,
+      "max": 22.567430645227432,
+      "mean": 18.247189158080694,
+      "median": 17.92446669191122
+    },
+    "historical_salinity_psu": {
+      "min": 34.4798119738698,
+      "max": 35.303811728954315,
+      "mean": 34.88332950099207,
+      "median": 34.85671556554735
+    },
+    "historical_surface_o2_ml_l": {
+      "min": 3.4100966453552246,
+      "max": 5.706014156341553,
+      "mean": 5.142850181635688,
+      "median": 5.199427366256714
+    },
+    "oxycline_reached_before_seabed": {
+      "min": 0.0,
+      "max": 1.0,
+      "mean": 0.7794117647058824,
+      "median": 1.0
+    },
+    "oxycline_depth_when_reached_m": {
+      "min": 0.0,
+      "max": 106.60943096557276,
+      "mean": 28.557409929752584,
+      "median": 24.108969932038672
+    }
+  },
+  "validation_summary": {
+    "year_holdout_concordance": 0.598,
+    "year_holdout_top1": 0.324,
+    "year_holdout_weighted_auc": 0.55,
+    "spatial_validation": "insufficient because valid-depth occurrences are strongly spatially concentrated"
+  },
+  "limitations": [
+    "Model trained on sparse public GBIF occurrence data.",
+    "Spatial transfer could not be robustly validated.",
+    "Scores must not be interpreted as probability of anchoveta presence.",
+    "Model should be retrained if IMARPE survey observations become available."
+  ]
+}

@@ -1,5 +1,6 @@
 import os
 import math
+import json
 import tempfile
 from pathlib import Path
 from datetime import date, timedelta, datetime
@@ -17,11 +18,18 @@ import xarray as xr
 # ============================================================
 st.set_page_config(page_title="E-AWARE", page_icon="🐟", layout="wide")
 st.title("🐟 E-AWARE")
-st.caption("El Niño Adaptive Fisheries Intelligence — V2 Step 3")
+st.caption(
+    "El Niño Adaptive Fisheries Intelligence — "
+    "Operational HSI + Experimental ML"
+)
+
 st.info(
-    "V2 Step 3 adds a training-data quality-control audit to the anchoveta "
-    "observation and historical environmental-matching pipeline. It still does not "
-    "train a machine-learning model."
+    "E-AWARE uses the literature-based Habitat Suitability Index (HSI) "
+    "as its PRIMARY operational habitat model. "
+    "A coast-matched conditional logistic model is retained as an "
+    "EXPERIMENTAL secondary research layer. "
+    "The experimental ML score is relative habitat suitability, "
+    "not probability of fish presence."
 )
 
 MIN_LON, MAX_LON = -81.50, -81.20
@@ -58,6 +66,10 @@ OXYCLINE_THRESHOLD_ML_L = 1.0
 OBSERVATION_REPO_PATH = Path("data/anchoveta_observations.csv")
 LEGACY_OBSERVATION_REPO_PATH = Path("data/imarpe_anchoveta_observations.csv")
 
+EXPERIMENTAL_MODEL_MANIFEST = Path(
+    "model_artifacts/eaware_experimental_ml.json"
+)
+
 # Engineering QC warning thresholds for nearest-grid matching.
 # These are diagnostic thresholds, not biological habitat thresholds.
 QC_MAX_PHYSICS_MATCH_KM = 15.0
@@ -66,6 +78,24 @@ QC_MAX_BGC_MATCH_KM = 25.0
 # ============================================================
 # GENERAL HELPERS
 # ============================================================
+
+@st.cache_data
+def load_experimental_model_manifest():
+
+    if not EXPERIMENTAL_MODEL_MANIFEST.exists():
+        return None
+
+    try:
+        return json.loads(
+            EXPERIMENTAL_MODEL_MANIFEST.read_text(
+                encoding="utf-8"
+            )
+        )
+
+    except Exception:
+        return None
+
+
 def get_credentials():
     username = st.secrets.get("COPERNICUS_USERNAME", "")
     password = st.secrets.get("COPERNICUS_PASSWORD", "")
@@ -2251,6 +2281,469 @@ def calculate_hsi(
     )
 
     return df
+
+
+def score_experimental_ml_live(
+    dataframe,
+    manifest
+):
+    """
+    Apply the frozen experimental conditional-logistic model
+    to the live environmental grid.
+
+    IMPORTANT:
+    - Output is a relative ranking score.
+    - It is NOT probability of anchoveta presence.
+    - It does NOT replace or modify the operational HSI.
+    """
+
+    df = dataframe.copy()
+
+    diagnostics = {
+        "available": False,
+        "reason": None,
+        "cells_scored": 0,
+        "cells_inside_training_envelope": 0,
+        "inside_training_envelope_pct": np.nan,
+        "feature_envelope": [],
+    }
+
+    df[
+        "experimental_ml_score"
+    ] = np.nan
+
+    df[
+        "experimental_ml_relative_rank"
+    ] = np.nan
+
+    df[
+        "experimental_ml_outside_training_count"
+    ] = np.nan
+
+    df[
+        "experimental_ml_in_training_envelope"
+    ] = False
+
+    if not manifest:
+
+        diagnostics[
+            "reason"
+        ] = (
+            "Experimental model manifest unavailable."
+        )
+
+        return df, diagnostics
+
+    required_live = [
+        "temperature",
+        "salinity",
+        "oxygen_ml_l",
+        "water_depth_m",
+        "oxycline_depth_m",
+    ]
+
+    # oxycline_depth_m is allowed to contain NaN because
+    # NaN means that the 1 mL/L threshold was not reached
+    # before the local seabed.
+    required_nonnullable = [
+        "temperature",
+        "salinity",
+        "oxygen_ml_l",
+        "water_depth_m",
+    ]
+
+    missing_columns = [
+        c
+        for c in required_live
+        if c not in df.columns
+    ]
+
+    if missing_columns:
+
+        diagnostics[
+            "reason"
+        ] = (
+            "Missing live predictor columns: "
+            +
+            ", ".join(
+                missing_columns
+            )
+        )
+
+        return df, diagnostics
+
+    # --------------------------------------------------------
+    # Reproduce the physical oxycline encoding used in
+    # final experimental model training.
+    # --------------------------------------------------------
+
+    df[
+        "oxycline_reached_before_seabed"
+    ] = (
+        df[
+            "oxycline_depth_m"
+        ]
+        .notna()
+        .astype(int)
+    )
+
+    df[
+        "oxycline_depth_when_reached_m"
+    ] = np.where(
+        df[
+            "oxycline_reached_before_seabed"
+        ] == 1,
+        df[
+            "oxycline_depth_m"
+        ],
+        0.0,
+    )
+
+    live_feature_map = {
+        "historical_sst_c":
+            "temperature",
+
+        "historical_salinity_psu":
+            "salinity",
+
+        "historical_surface_o2_ml_l":
+            "oxygen_ml_l",
+
+        "oxycline_reached_before_seabed":
+            "oxycline_reached_before_seabed",
+
+        "oxycline_depth_when_reached_m":
+            "oxycline_depth_when_reached_m",
+    }
+
+    features = manifest.get(
+        "features",
+        []
+    )
+
+    unresolved = [
+        feature
+        for feature in features
+        if feature not in live_feature_map
+    ]
+
+    if unresolved:
+
+        diagnostics[
+            "reason"
+        ] = (
+            "Unsupported experimental feature(s): "
+            +
+            ", ".join(
+                unresolved
+            )
+        )
+
+        return df, diagnostics
+
+    valid_mask = (
+        df[
+            required_nonnullable
+        ]
+        .notna()
+        .all(
+            axis=1
+        )
+    )
+
+    if not valid_mask.any():
+
+        diagnostics[
+            "reason"
+        ] = (
+            "No live grid cells contain all "
+            "experimental predictors."
+        )
+
+        return df, diagnostics
+
+    live_columns = [
+        live_feature_map[
+            feature
+        ]
+        for feature in features
+    ]
+
+    X = (
+        df.loc[
+            valid_mask,
+            live_columns
+        ]
+        .astype(float)
+        .to_numpy()
+    )
+
+    mean = np.asarray(
+        manifest.get(
+            "scaler_mean",
+            []
+        ),
+        dtype=float,
+    )
+
+    scale = np.asarray(
+        manifest.get(
+            "scaler_scale",
+            []
+        ),
+        dtype=float,
+    )
+
+    coefficients = np.asarray(
+        manifest.get(
+            "coefficients",
+            []
+        ),
+        dtype=float,
+    )
+
+    if not (
+        len(features)
+        ==
+        len(mean)
+        ==
+        len(scale)
+        ==
+        len(coefficients)
+    ):
+
+        diagnostics[
+            "reason"
+        ] = (
+            "Experimental model manifest dimensions "
+            "are inconsistent."
+        )
+
+        return df, diagnostics
+
+    safe_scale = np.where(
+        scale == 0,
+        1.0,
+        scale,
+    )
+
+    standardized = (
+        X
+        -
+        mean
+    ) / safe_scale
+
+    score = (
+        standardized
+        @
+        coefficients
+    )
+
+    valid_index = (
+        df.index[
+            valid_mask
+        ]
+    )
+
+    df.loc[
+        valid_index,
+        "experimental_ml_score",
+    ] = score
+
+    # Percentile ranking ONLY within the current live grid.
+    # 1.0 = highest experimental relative score today.
+    df.loc[
+        valid_index,
+        "experimental_ml_relative_rank",
+    ] = (
+        pd.Series(
+            score,
+            index=valid_index,
+        )
+        .rank(
+            method="average",
+            pct=True,
+        )
+    )
+
+    # --------------------------------------------------------
+    # Training-envelope check
+    # --------------------------------------------------------
+
+    training_ranges = (
+        manifest.get(
+            "training_ranges",
+            {}
+        )
+    )
+
+    outside_count = np.zeros(
+        len(valid_index),
+        dtype=int,
+    )
+
+    feature_envelope = []
+
+    for position, feature in enumerate(
+        features
+    ):
+
+        limits = training_ranges.get(
+            feature
+        )
+
+        if not limits:
+            continue
+
+        minimum = limits.get(
+            "min"
+        )
+
+        maximum = limits.get(
+            "max"
+        )
+
+        if (
+            minimum is None
+            or
+            maximum is None
+        ):
+            continue
+
+        values = X[
+            :,
+            position
+        ]
+
+        outside_mask = (
+            (
+                values
+                <
+                float(
+                    minimum
+                )
+            )
+            |
+            (
+                values
+                >
+                float(
+                    maximum
+                )
+            )
+        )
+
+        outside_count += (
+            outside_mask.astype(int)
+        )
+
+        feature_envelope.append(
+            {
+                "Predictor":
+                    feature,
+
+                "Training Min":
+                    float(minimum),
+
+                "Training Max":
+                    float(maximum),
+
+                "Live Min":
+                    float(
+                        np.nanmin(
+                            values
+                        )
+                    ),
+
+                "Live Max":
+                    float(
+                        np.nanmax(
+                            values
+                        )
+                    ),
+
+                "Cells Outside":
+                    int(
+                        outside_mask.sum()
+                    ),
+
+                "Cells Scored":
+                    int(
+                        len(values)
+                    ),
+            }
+        )
+
+    df.loc[
+        valid_index,
+        "experimental_ml_outside_training_count",
+    ] = outside_count
+
+    inside = (
+        outside_count
+        ==
+        0
+    )
+
+    df.loc[
+        valid_index,
+        "experimental_ml_in_training_envelope",
+    ] = inside
+
+    diagnostics[
+        "available"
+    ] = True
+
+    diagnostics[
+        "cells_scored"
+    ] = int(
+        len(
+            valid_index
+        )
+    )
+
+    diagnostics[
+        "cells_inside_training_envelope"
+    ] = int(
+        inside.sum()
+    )
+
+    diagnostics[
+        "inside_training_envelope_pct"
+    ] = float(
+        100.0
+        *
+        inside.mean()
+    )
+
+    diagnostics[
+        "feature_envelope"
+    ] = feature_envelope
+
+    return df, diagnostics
+
+
+def experimental_rank_agreement_label(
+    correlation
+):
+    """
+    Dashboard diagnostic only.
+    These are NOT biological thresholds and are NOT
+    model-validation categories.
+    """
+
+    if pd.isna(
+        correlation
+    ):
+        return "Unavailable"
+
+    if correlation >= 0.60:
+        return "High"
+
+    if correlation >= 0.30:
+        return "Moderate"
+
+    return "Low"
 
 
 def hsi_class(
@@ -5142,6 +5635,17 @@ current_data = calculate_hsi(
     current_date.month
 )
 
+experimental_manifest = (
+    load_experimental_model_manifest()
+)
+
+current_data, experimental_ml_diagnostics = (
+    score_experimental_ml_live(
+        current_data,
+        experimental_manifest
+    )
+)
+
 current_data[
     "class"
 ] = current_data[
@@ -5159,6 +5663,133 @@ best = current_data.loc[
 reference = habitat_reference(
     current_date.month
 )
+
+experimental_ml_best = None
+experimental_rank_correlation = np.nan
+experimental_rank_correlation_reason = None
+experimental_best_zone_distance_km = np.nan
+experimental_agreement = "Unavailable"
+
+if (
+    experimental_ml_diagnostics[
+        "available"
+    ]
+    and
+    current_data[
+        "experimental_ml_score"
+    ].notna().any()
+):
+
+    experimental_ml_best = (
+        current_data.loc[
+            current_data[
+                "experimental_ml_score"
+            ].idxmax()
+        ]
+    )
+
+    comparison = current_data[
+        [
+            "hsi",
+            "experimental_ml_score",
+        ]
+    ].dropna()
+
+    if len(
+        comparison
+    ) >= 2:
+
+        hsi_rank = (
+            comparison[
+                "hsi"
+            ]
+            .rank(
+                method="average"
+            )
+        )
+
+        ml_rank = (
+            comparison[
+                "experimental_ml_score"
+            ]
+            .rank(
+                method="average"
+            )
+        )
+
+        if hsi_rank.nunique() < 2:
+
+            experimental_rank_correlation_reason = (
+                "HSI values are tied across the scored "
+                "live grid cells."
+            )
+
+        elif ml_rank.nunique() < 2:
+
+            experimental_rank_correlation_reason = (
+                "Experimental ML scores are tied across "
+                "the scored live grid cells."
+            )
+
+        else:
+
+            experimental_rank_correlation = (
+                hsi_rank.corr(
+                    ml_rank
+                )
+            )
+
+    envelope_pct = (
+        experimental_ml_diagnostics.get(
+            "inside_training_envelope_pct",
+            np.nan
+        )
+    )
+
+    if (
+        pd.notna(
+            envelope_pct
+        )
+        and
+        envelope_pct <= 0
+    ):
+
+        experimental_agreement = (
+            "Not interpreted"
+        )
+
+    else:
+
+        experimental_agreement = (
+            experimental_rank_agreement_label(
+                experimental_rank_correlation
+            )
+        )
+
+    experimental_best_zone_distance_km = (
+        haversine(
+            float(
+                best[
+                    "lat"
+                ]
+            ),
+            float(
+                best[
+                    "lon"
+                ]
+            ),
+            float(
+                experimental_ml_best[
+                    "lat"
+                ]
+            ),
+            float(
+                experimental_ml_best[
+                    "lon"
+                ]
+            ),
+        )
+    )
 
 coastline_lines = (
     load_noaa_coastline_lines()
@@ -5229,6 +5860,226 @@ cols[3].metric(
         f"{best['distance_coast_nm']:.2f} nm"
     )
 )
+
+st.subheader(
+    "🧪 Experimental ML Comparison"
+)
+
+st.caption(
+    "Secondary research layer only. "
+    "The experimental conditional model does not change "
+    "the HSI, best-zone selection, forecast habitat shift "
+    "or fisher SMS."
+)
+
+if (
+    experimental_ml_diagnostics[
+        "available"
+    ]
+    and
+    experimental_ml_best is not None
+):
+
+    cols = st.columns(
+        4
+    )
+
+    envelope_pct = (
+        experimental_ml_diagnostics[
+            "inside_training_envelope_pct"
+        ]
+    )
+
+    ml_live_status = (
+        "Out-of-envelope"
+        if envelope_pct <= 0
+        else
+        "Exploratory"
+    )
+
+    cols[0].metric(
+        "Experimental ML Status",
+        ml_live_status
+    )
+
+    cols[1].metric(
+        "HSI ↔ ML Rank Agreement",
+        experimental_agreement
+    )
+
+    cols[2].metric(
+        "Rank Correlation",
+        (
+            f"{experimental_rank_correlation:.2f}"
+            if pd.notna(
+                experimental_rank_correlation
+            )
+            else
+            "Unavailable"
+        )
+    )
+
+    cols[3].metric(
+        "Best-Zone Separation",
+        (
+            f"{experimental_best_zone_distance_km:.2f} km"
+            if pd.notna(
+                experimental_best_zone_distance_km
+            )
+            else
+            "Unavailable"
+        )
+    )
+
+    if (
+        pd.isna(
+            experimental_rank_correlation
+        )
+        and
+        experimental_rank_correlation_reason
+    ):
+
+        st.caption(
+            "Rank correlation unavailable: "
+            +
+            experimental_rank_correlation_reason
+        )
+
+    cols = st.columns(
+        4
+    )
+
+    cols[0].metric(
+        "ML Best Latitude",
+        f"{experimental_ml_best['lat']:.4f}"
+    )
+
+    cols[1].metric(
+        "ML Best Longitude",
+        f"{experimental_ml_best['lon']:.4f}"
+    )
+
+    cols[2].metric(
+        "Live Cells Scored",
+        (
+            f"{experimental_ml_diagnostics['cells_scored']:,}"
+        )
+    )
+
+    cols[3].metric(
+        "Inside Training Envelope",
+        (
+            f"{experimental_ml_diagnostics['inside_training_envelope_pct']:.1f}%"
+        )
+    )
+
+    ml_best_in_envelope = bool(
+        experimental_ml_best[
+            "experimental_ml_in_training_envelope"
+        ]
+    )
+
+    if envelope_pct <= 0:
+
+        st.error(
+            "All currently scored live cells are outside "
+            "the experimental ML training envelope. "
+            "The ML ranking and best-zone separation are "
+            "shown for research transparency only and should "
+            "not be interpreted as reliable habitat guidance."
+        )
+
+    elif ml_best_in_envelope:
+
+        st.success(
+            "The experimental ML best-ranked live cell "
+            "is inside the environmental range represented "
+            "in the model training data."
+        )
+
+    else:
+
+        outside_count = int(
+            experimental_ml_best[
+                "experimental_ml_outside_training_count"
+            ]
+        )
+
+        st.warning(
+            "The experimental ML best-ranked live cell is "
+            f"outside the training range for {outside_count} "
+            "predictor(s). Treat this experimental ranking "
+            "with additional caution."
+        )
+
+    with st.expander(
+        "🔎 Live vs Experimental ML Training Ranges"
+    ):
+
+        envelope_table = pd.DataFrame(
+            experimental_ml_diagnostics.get(
+                "feature_envelope",
+                []
+            )
+        )
+
+        if not envelope_table.empty:
+
+            st.dataframe(
+                envelope_table,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.caption(
+                "A cell is outside the training envelope when "
+                "at least one live predictor is below the minimum "
+                "or above the maximum observed in the final "
+                "34-anchor experimental training dataset."
+            )
+
+        else:
+
+            st.info(
+                "No predictor-range diagnostics are available."
+            )
+
+
+    with st.expander(
+        "What does the experimental ML score mean?"
+    ):
+
+        st.markdown(
+            """
+- The model was trained using **34 matched anchoveta presence sets** after strict environmental and bathymetric QC.
+- Background locations represent **locally available habitat**, not confirmed fish absence.
+- The displayed ML value is ranked **relative to the current live grid**.
+- It is **not** a probability that anchoveta are present at a coordinate.
+- Year-held-out matched concordance was **0.598** and Top-1 performance was **0.324**.
+- Robust spatial transfer could **not** be established because the valid historical observations were strongly geographically concentrated.
+- The literature-based **HSI remains the primary operational model**.
+"""
+        )
+
+        st.caption(
+            "High / Moderate / Low rank-agreement labels are "
+            "dashboard diagnostics only. They are not biological "
+            "or validated fisheries-management thresholds."
+        )
+
+else:
+
+    st.warning(
+        "Experimental ML live scoring is unavailable: "
+        +
+        str(
+            experimental_ml_diagnostics.get(
+                "reason",
+                "unknown reason"
+            )
+        )
+    )
+
 
 st.subheader(
     "🗓️ Temporal / Seasonal Predictor"
@@ -5916,10 +6767,11 @@ cols[3].metric(
     ]
 )
 
-st.warning(
-    "The temporary HSI still uses only temperature, "
-    "salinity and surface dissolved oxygen. "
-    "Historical matching does not change the live HSI."
+st.info(
+    "The operational HSI uses temperature, salinity and "
+    "surface dissolved oxygen from the literature-based "
+    "reference ranges. The experimental ML layer is displayed "
+    "separately and does not alter the HSI forecast."
 )
 
 forecast_centres = []
@@ -7205,7 +8057,11 @@ st.dataframe(
 )
 
 st.subheader(
-    "🧪 V2 Step 3 Model Status"
+    "🧪 E-AWARE Model Status"
+)
+
+model_manifest = (
+    load_experimental_model_manifest()
 )
 
 cols = st.columns(
@@ -7213,19 +8069,74 @@ cols = st.columns(
 )
 
 cols[0].success(
-    "Historical observations can now be ingested, audited, matched to "
-    "historical environmental predictors and QC-screened without "
-    "altering the live HSI."
+    "**PRIMARY — Literature HSI**\n\n"
+    "The live habitat map, best-zone selection and "
+    "72-hour habitat-shift forecast continue to use "
+    "the literature-based Habitat Suitability Index."
 )
 
-cols[1].warning(
-    "No machine-learning model is trained yet. "
-    "The next stage after a defensible historical dataset passes Step 3 QC "
-    "is a versioned final training table, followed by a Logistic Regression baseline."
-)
+if model_manifest:
+
+    validation = model_manifest.get(
+        "validation_summary",
+        {}
+    )
+
+    year_concordance = validation.get(
+        "year_holdout_concordance"
+    )
+
+    year_top1 = validation.get(
+        "year_holdout_top1"
+    )
+
+    anchors = model_manifest.get(
+        "training_anchors",
+        "—"
+    )
+
+    concordance_text = (
+        f"{year_concordance:.3f}"
+        if isinstance(
+            year_concordance,
+            (int, float)
+        )
+        else
+        "—"
+    )
+
+    top1_text = (
+        f"{year_top1:.3f}"
+        if isinstance(
+            year_top1,
+            (int, float)
+        )
+        else
+        "—"
+    )
+
+    cols[1].info(
+        "**SECONDARY — Experimental Conditional ML**\n\n"
+        f"Training anchors: **{anchors}**  \n"
+        f"Year-held-out matched concordance: "
+        f"**{concordance_text}**  \n"
+        f"Year-held-out Top-1: **{top1_text}**  \n\n"
+        "Spatial transfer could not be robustly validated. "
+        "The score must not be interpreted as probability "
+        "of anchoveta presence."
+    )
+
+else:
+
+    cols[1].warning(
+        "**SECONDARY — Experimental Conditional ML**\n\n"
+        "The experimental-model manifest is not available "
+        "in this deployment. The primary HSI remains fully "
+        "operational."
+    )
 
 with st.expander(
-    "⚙️ V2 Step 3 Limitations"
+    "⚙️ E-AWARE Model & Data Limitations"
 ):
 
     limitation_lines = [
@@ -7248,8 +8159,9 @@ with st.expander(
 st.divider()
 
 st.caption(
-    "E-AWARE V2 Step 3 | "
-    "Historical observation ↔ environmental matching ↔ training-data QC | "
+    "E-AWARE V2 | "
+    "Literature HSI = primary operational model | "
+    "Conditional ML = experimental secondary layer | "
     "Decision-support research prototype"
 )
 
