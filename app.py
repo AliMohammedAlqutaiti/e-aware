@@ -7024,7 +7024,7 @@ for forecast_date in available_dates:
     )
 
 st.subheader(
-    "🧭 Predicted Habitat Shift"
+    "🧭 Predicted Suitable-Habitat Shift"
 )
 
 direction_text = "Unavailable"
@@ -7035,6 +7035,7 @@ coastal_interpretation = "Unavailable"
 
 start = None
 end = None
+forecast_hours = None
 
 if len(
     forecast_centres
@@ -7042,6 +7043,22 @@ if len(
 
     start = forecast_centres[0]
     end = forecast_centres[-1]
+
+    forecast_hours = int(
+        round(
+            (
+                pd.Timestamp(
+                    end["date"]
+                )
+                -
+                pd.Timestamp(
+                    start["date"]
+                )
+            ).total_seconds()
+            /
+            3600.0
+        )
+    )
 
     distance = haversine(
         start[
@@ -7077,18 +7094,22 @@ if len(
         f"{distance:.2f} km"
     )
 
-    bearing_text = (
-        f"{bearing:.1f}°"
-    )
+    if distance >= 2.0:
 
-    direction_text = (
-        direction_name(
-            bearing
+        bearing_text = (
+            f"{bearing:.1f}°"
         )
-        if distance >= 2.0
-        else
-        "No clear shift"
-    )
+
+        direction_text = (
+            direction_name(
+                bearing
+            )
+        )
+
+    else:
+
+        bearing_text = "—"
+        direction_text = "No clear shift"
 
     period_text = (
         f"{start['date'].strftime('%d %b %Y')} "
@@ -7125,12 +7146,12 @@ cols = st.columns(
 )
 
 cols[0].metric(
-    "Predicted Direction",
+    "Suitable-Habitat Shift",
     direction_text
 )
 
 cols[1].metric(
-    "Total Shift",
+    "Centroid Shift",
     distance_text
 )
 
@@ -7141,6 +7162,13 @@ cols[2].metric(
 
 st.markdown(
     f"**Forecast Period:** {period_text}"
+)
+
+st.caption(
+    "The shift is calculated from movement of the "
+    "HSI-weighted suitable-habitat centroid. "
+    "It is not a predicted exact fish location or "
+    "navigation instruction."
 )
 
 if (
@@ -7162,7 +7190,12 @@ if (
     )
 
     cols[1].metric(
-        "+72 h Distance from Coast",
+        (
+            f"+{forecast_hours} h Distance from Coast"
+            if forecast_hours is not None
+            else
+            "Future Distance from Coast"
+        ),
         (
             f"{end['distance_coast_km']:.2f} km / "
             f"{end['distance_coast_nm']:.2f} nm"
@@ -7175,7 +7208,12 @@ if (
     )
 
 st.subheader(
-    "📅 72-Hour Habitat Forecast"
+    (
+        f"📅 {forecast_hours}-Hour Habitat Forecast"
+        if forecast_hours is not None
+        else
+        "📅 Habitat Forecast"
+    )
 )
 
 st.dataframe(
@@ -7933,10 +7971,10 @@ else:
 
 
 # ============================================================
-# SMS PREVIEW
+# FISHER ADVISORY / SMS PREVIEW
 # ============================================================
 st.subheader(
-    "📱 Fisher SMS Alert Preview"
+    "📱 Fisher SMS Advisory Preview"
 )
 
 best_hsi = float(
@@ -7945,47 +7983,78 @@ best_hsi = float(
     ]
 )
 
-sms_message = f"""E-AWARE Fisheries Alert
+# ------------------------------------------------------------
+# Bathymetry at the highest-HSI grid cell.
+#
+# This is seafloor depth, NOT predicted fish depth.
+# E-AWARE currently has no validated vertical-distribution
+# model for anchoveta.
+# ------------------------------------------------------------
+
+best_seafloor_depth_text = (
+    f"{float(best['water_depth_m']):.0f} m"
+    if pd.notna(
+        best[
+            "water_depth_m"
+        ]
+    )
+    else
+    "Unavailable"
+)
+
+
+best_zone_text = (
+    f"{best['lat']:.4f}, "
+    f"{best['lon']:.4f}"
+)
+
+
+sms_message = f"""E-AWARE Fisheries Advisory
+
+Date:
+{current_date}
 
 Anchoveta habitat suitability:
-{hsi_class(best_hsi).upper()}
+{hsi_class(best_hsi).upper()} (HSI {best_hsi:.2f})
 
-Habitat Suitability Index:
-{best_hsi:.2f}
+Higher-suitability zone:
+{best_zone_text}
+
+Seafloor depth at highest-HSI cell:
+{best_seafloor_depth_text}
 
 Predicted suitable-habitat shift:
 {direction_text}
 
-Estimated habitat shift:
+Estimated habitat-centroid shift:
 {distance_text}
 
 Relative to coastline:
 {coastal_interpretation}
 
-Sea temperature:
-{best['temperature']:.1f} °C
-
-Salinity:
-{best['salinity']:.2f} PSU
-
-Dissolved oxygen:
-{best['oxygen_ml_l']:.2f} mL/L
-
-GEBCO depth estimate:
-{best['water_depth_m']:.0f} m
+Conditions at highest-HSI cell:
+SST {best['temperature']:.1f} °C
+Salinity {best['salinity']:.2f} PSU
+Oxygen {best['oxygen_ml_l']:.2f} mL/L
 
 Distance from coast:
 {best['distance_coast_km']:.2f} km / {best['distance_coast_nm']:.2f} nm
 
-Check official fishing restrictions before departure.
-
-E-AWARE provides habitat guidance only.
+Check official closures and fishing restrictions.
+E-AWARE identifies higher-suitability habitat zones,
+not exact fish locations or navigation routes.
 """
 
 st.text_area(
-    "Example SMS",
+    "Example SMS advisory",
     sms_message,
-    height=500
+    height=520
+)
+
+st.caption(
+    "The displayed depth is GEBCO seafloor bathymetry at the "
+    "highest-HSI grid cell. E-AWARE does not currently predict "
+    "a validated anchoveta fishing-depth band."
 )
 
 
