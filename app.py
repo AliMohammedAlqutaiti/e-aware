@@ -5872,7 +5872,7 @@ with st.sidebar:
 
     if st.button(
         "🔄 Refresh Live Data",
-        use_container_width=True
+        width="stretch"
     ):
 
         st.cache_data.clear()
@@ -6532,7 +6532,7 @@ if (
 
             st.dataframe(
                 envelope_table,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True
             )
 
@@ -7286,7 +7286,7 @@ st.pydeck_chart(
                 "SST anomaly: {anomaly_display} °C"
         },
     ),
-    use_container_width=True
+    width="stretch"
 )
 
 
@@ -7945,7 +7945,7 @@ st.dataframe(
     pd.DataFrame(
         forecast_results
     ),
-    use_container_width=True,
+    width="stretch",
     hide_index=True
 )
 
@@ -8110,7 +8110,7 @@ else:
                 pd.DataFrame(
                     mapping_rows
                 ),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True
             )
 
@@ -8176,7 +8176,7 @@ else:
                 observation_qc[
                     "summary"
                 ],
-                use_container_width=True,
+                width="stretch",
                 hide_index=True
             )
 
@@ -8192,7 +8192,7 @@ else:
                     observation_qc[
                         "class_balance"
                     ],
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True
                 )
 
@@ -8204,7 +8204,7 @@ else:
                     observation_qc[
                         "season_counts"
                     ],
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True
                 )
 
@@ -8215,7 +8215,7 @@ else:
                 observation_qc[
                     "year_counts"
                 ],
-                use_container_width=True,
+                width="stretch",
                 hide_index=True
             )
 
@@ -8229,7 +8229,7 @@ else:
                     observation_qc[
                         "duplicates"
                     ],
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True
                 )
 
@@ -8360,7 +8360,7 @@ else:
             if st.button(
                 "🔗 Match Historical Environmental Predictors",
                 type="primary",
-                use_container_width=True
+                width="stretch"
             ):
 
                 with st.status(
@@ -8501,7 +8501,7 @@ else:
                     matched[
                         display_cols
                     ],
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True
                 )
 
@@ -8613,7 +8613,7 @@ else:
                     matched_qc[
                         "summary"
                     ],
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True
                 )
 
@@ -8630,7 +8630,7 @@ else:
                         matched_qc[
                             "predictor_completeness"
                         ],
-                        use_container_width=True,
+                        width="stretch",
                         hide_index=True
                     )
 
@@ -8642,7 +8642,7 @@ else:
                         matched_qc[
                             "annotated"
                         ],
-                        use_container_width=True,
+                        width="stretch",
                         hide_index=True
                     )
 
@@ -8860,7 +8860,7 @@ source_table = pd.DataFrame(
 
 st.dataframe(
     source_table,
-    use_container_width=True,
+    width="stretch",
     hide_index=True
 )
 
