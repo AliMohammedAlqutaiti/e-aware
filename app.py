@@ -8790,6 +8790,162 @@ st.text_area(
     height=680
 )
 
+# ============================================================
+# REAL EMAIL ADVISORY DELIVERY
+# ============================================================
+
+st.subheader(
+    "📧 Email Advisory Delivery"
+)
+
+st.caption(
+    "The current E-AWARE advisory can be delivered by email. "
+    "SMS/GSM delivery remains a proposed future implementation."
+)
+
+email_secret_names = [
+    "RESEND_API_KEY",
+    "EAWARE_EMAIL_FROM",
+    "EAWARE_EMAIL_TO",
+]
+
+email_configured = all(
+    key in st.secrets
+    for key in email_secret_names
+)
+
+if not email_configured:
+
+    st.info(
+        "Email delivery is not configured in this environment. "
+        "The required credentials are stored separately in "
+        "Streamlit Cloud Secrets."
+    )
+
+else:
+
+    if st.button(
+        "📧 Send Current E-AWARE Advisory",
+        type="primary"
+    ):
+
+        try:
+
+            import html
+            import resend
+
+            resend.api_key = st.secrets[
+                "RESEND_API_KEY"
+            ]
+
+            safe_message = html.escape(
+                sms_message
+            )
+
+            email_html = f"""
+            <div style="
+                font-family: Arial, sans-serif;
+                max-width: 700px;
+                margin: auto;
+                color: #222;
+            ">
+
+                <h1 style="
+                    margin-bottom: 4px;
+                ">
+                    E-AWARE Fisheries Advisory
+                </h1>
+
+                <p style="
+                    color: #666;
+                    margin-top: 0;
+                ">
+                    El Niño Adaptive Fisheries Intelligence
+                </p>
+
+                <div style="
+                    background: #f4f4f4;
+                    border-radius: 12px;
+                    padding: 22px;
+                    margin-top: 24px;
+                ">
+
+                    <pre style="
+                        white-space: pre-wrap;
+                        font-family: Arial, sans-serif;
+                        line-height: 1.6;
+                        margin: 0;
+                    ">{safe_message}</pre>
+
+                </div>
+
+                <p style="
+                    margin-top: 24px;
+                    font-size: 13px;
+                    color: #666;
+                ">
+                    E-AWARE provides habitat decision support only.
+                    It does not provide legal fishing permission,
+                    exact fish locations or navigation instructions.
+                    Current PRODUCE regulations must be verified
+                    before fishing.
+                </p>
+
+            </div>
+            """
+
+            email_result = resend.Emails.send(
+                {
+                    "from":
+                        st.secrets[
+                            "EAWARE_EMAIL_FROM"
+                        ],
+
+                    "to": [
+                        st.secrets[
+                            "EAWARE_EMAIL_TO"
+                        ]
+                    ],
+
+                    "subject":
+                        f"E-AWARE Fisheries Advisory — {current_date}",
+
+                    "html":
+                        email_html,
+                }
+            )
+
+            if isinstance(
+                email_result,
+                dict
+            ):
+
+                email_id = email_result.get(
+                    "id",
+                    "sent"
+                )
+
+            else:
+
+                email_id = getattr(
+                    email_result,
+                    "id",
+                    "sent"
+                )
+
+            st.success(
+                "✅ E-AWARE advisory email sent successfully. "
+                f"Delivery ID: {email_id}"
+            )
+
+        except Exception as exc:
+
+            st.error(
+                "Email delivery failed. "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+
 st.caption(
     "The displayed depth is GEBCO seafloor bathymetry at the "
     "highest-HSI grid cell. E-AWARE does not currently predict "

@@ -8,3 +8,4 @@ netCDF4
 requests
 scikit-learn
 joblib
+resend
