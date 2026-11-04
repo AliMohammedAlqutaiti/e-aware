@@ -2746,6 +2746,205 @@ def experimental_rank_agreement_label(
     return "Low"
 
 
+def assess_fisheries_protection(
+    best,
+    hsi_confidence,
+    juvenile_pct=None
+):
+    """
+    Fisheries protection decision-support layer.
+
+    IMPORTANT:
+    - E-AWARE does NOT declare legal fishing closures.
+    - Official closures/restrictions must come from PRODUCE.
+    - Juvenile status is assessed only when actual biometric
+      juvenile data are available.
+    - HSI remains habitat guidance, not regulatory guidance.
+    """
+
+    # --------------------------------------------------------
+    # Official regulatory status
+    # --------------------------------------------------------
+
+    official_status = "NOT LIVE-VERIFIED"
+
+    official_detail = (
+        "E-AWARE is not currently connected to a live PRODUCE "
+        "regulatory feed. Current closures and restrictions "
+        "must be verified from official Peruvian authorities."
+    )
+
+
+    # --------------------------------------------------------
+    # Juvenile protection
+    #
+    # Prototype reference:
+    # Anchoveta minimum total length = 12 cm
+    # Maximum juvenile tolerance = 10%
+    #
+    # E-AWARE only applies this logic if a real juvenile
+    # percentage is supplied.
+    # --------------------------------------------------------
+
+    if juvenile_pct is None:
+
+        juvenile_status = "NOT ASSESSED"
+
+        juvenile_detail = (
+            "No current biometric juvenile-incidence data "
+            "are available to E-AWARE."
+        )
+
+    else:
+
+        juvenile_pct = float(
+            juvenile_pct
+        )
+
+        if juvenile_pct <= 10.0:
+
+            juvenile_status = "WITHIN REFERENCE TOLERANCE"
+
+            juvenile_detail = (
+                f"Juvenile incidence = {juvenile_pct:.1f}%. "
+                "This is within the 10% reference tolerance. "
+                "Official fishing status must still be verified."
+            )
+
+        else:
+
+            juvenile_status = "CONSERVATION CAUTION"
+
+            juvenile_detail = (
+                f"Juvenile incidence = {juvenile_pct:.1f}%. "
+                "This exceeds the 10% reference tolerance. "
+                "E-AWARE flags conservation caution only; "
+                "it does not declare a legal closure."
+            )
+
+
+    # --------------------------------------------------------
+    # E-AWARE ecological advisory
+    #
+    # This uses the PRIMARY HSI only.
+    # It is habitat interpretation, NOT regulation.
+    # --------------------------------------------------------
+
+    try:
+
+        current_hsi = float(
+            best[
+                "hsi"
+            ]
+        )
+
+    except Exception:
+
+        current_hsi = np.nan
+
+
+    confidence = hsi_confidence[
+        "overall_confidence"
+    ]
+
+
+    if confidence == "Low":
+
+        ecological_status = "USE WITH CAUTION"
+
+        ecological_detail = (
+            "Environmental support for the current HSI is limited. "
+            "Do not rely on the habitat advisory without additional "
+            "local and official information."
+        )
+
+    elif pd.isna(
+        current_hsi
+    ):
+
+        ecological_status = "UNAVAILABLE"
+
+        ecological_detail = (
+            "A valid HSI value is not available for the current zone."
+        )
+
+    elif current_hsi < 0.30:
+
+        ecological_status = "LOW HABITAT SUITABILITY"
+
+        ecological_detail = (
+            "Current environmental conditions indicate low "
+            "anchoveta habitat suitability in the highest-scoring "
+            "available E-AWARE cell."
+        )
+
+    elif current_hsi < 0.60:
+
+        ecological_status = "MODERATE HABITAT SUITABILITY"
+
+        ecological_detail = (
+            "Current environmental conditions indicate moderate "
+            "anchoveta habitat suitability. This is habitat guidance "
+            "only and must not be interpreted as fishing permission."
+        )
+
+    elif current_hsi < 0.80:
+
+        ecological_status = "HIGH HABITAT SUITABILITY"
+
+        ecological_detail = (
+            "Current environmental conditions indicate relatively "
+            "high habitat suitability. This does not override any "
+            "official fishing restriction."
+        )
+
+    else:
+
+        ecological_status = "VERY HIGH HABITAT SUITABILITY"
+
+        ecological_detail = (
+            "Current environmental conditions indicate very high "
+            "habitat suitability. This remains a habitat prediction "
+            "and does not override regulation."
+        )
+
+
+    return {
+        "official_status":
+            official_status,
+
+        "official_detail":
+            official_detail,
+
+        "juvenile_status":
+            juvenile_status,
+
+        "juvenile_detail":
+            juvenile_detail,
+
+        "juvenile_pct":
+            juvenile_pct,
+
+        "ecological_status":
+            ecological_status,
+
+        "ecological_detail":
+            ecological_detail,
+
+        "minimum_length_cm":
+            12.0,
+
+        "juvenile_tolerance_pct":
+            10.0,
+
+        "regulatory_authority":
+            "PRODUCE",
+
+        "habitat_only":
+            True,
+    }
+
+
 def assess_primary_hsi_confidence(
     ocean,
     current_date,
@@ -5954,6 +6153,18 @@ hsi_confidence = (
     )
 )
 
+# No live juvenile biometric feed is connected yet.
+# Keep this as None until verified juvenile data are available.
+current_juvenile_pct = None
+
+fisheries_protection = (
+    assess_fisheries_protection(
+        best,
+        hsi_confidence,
+        juvenile_pct=current_juvenile_pct
+    )
+)
+
 reference = habitat_reference(
     current_date.month
 )
@@ -6501,6 +6712,96 @@ with st.expander(
 - These thresholds are **engineering diagnostics**, not biological thresholds.
 - Even with excellent environmental data, overall confidence is currently capped at **Moderate** because the HSI has not yet been independently validated against observed fish distributions.
 - Confidence must never be interpreted as probability of anchoveta presence.
+"""
+    )
+
+
+st.subheader(
+    "🐟 Fisheries Protection & Regulation"
+)
+
+st.caption(
+    "This panel separates official regulation, juvenile protection "
+    "and E-AWARE habitat guidance. E-AWARE does not declare legal "
+    "fishing closures."
+)
+
+protection_cols = st.columns(
+    3
+)
+
+protection_cols[0].metric(
+    "Official Fishing Status",
+    fisheries_protection[
+        "official_status"
+    ]
+)
+
+protection_cols[1].metric(
+    "Juvenile Protection",
+    fisheries_protection[
+        "juvenile_status"
+    ]
+)
+
+ecological_display = {
+    "LOW HABITAT SUITABILITY": "LOW",
+    "MODERATE HABITAT SUITABILITY": "MODERATE",
+    "HIGH HABITAT SUITABILITY": "HIGH",
+    "VERY HIGH HABITAT SUITABILITY": "VERY HIGH",
+    "USE WITH CAUTION": "CAUTION",
+    "UNAVAILABLE": "UNAVAILABLE",
+}.get(
+    fisheries_protection[
+        "ecological_status"
+    ],
+    fisheries_protection[
+        "ecological_status"
+    ]
+)
+
+protection_cols[2].metric(
+    "E-AWARE Ecological Advisory",
+    ecological_display
+)
+
+st.warning(
+    "Official fishing status is NOT live-verified. "
+    "Before fishing, users must check current PRODUCE regulations, "
+    "temporary suspensions and local restrictions."
+)
+
+with st.expander(
+    "🛡️ Fisheries protection details"
+):
+
+    st.markdown(
+        f"""
+### Official regulatory status
+
+**{fisheries_protection['official_status']}**
+
+{fisheries_protection['official_detail']}
+
+### Juvenile protection
+
+**{fisheries_protection['juvenile_status']}**
+
+{fisheries_protection['juvenile_detail']}
+
+Prototype regulatory reference used by E-AWARE:
+
+- Anchoveta minimum total length: **{fisheries_protection['minimum_length_cm']:.0f} cm**
+- Maximum juvenile tolerance reference: **{fisheries_protection['juvenile_tolerance_pct']:.0f}%**
+- Regulatory authority: **{fisheries_protection['regulatory_authority']}**
+
+### E-AWARE ecological interpretation
+
+**{fisheries_protection['ecological_status']}**
+
+{fisheries_protection['ecological_detail']}
+
+E-AWARE provides **habitat decision support only**. Habitat suitability, predicted movement and environmental conditions must never be interpreted as legal permission to fish.
 """
     )
 
@@ -8464,15 +8765,29 @@ Oxygen {best['oxygen_ml_l']:.2f} mL/L
 Distance from coast:
 {best['distance_coast_km']:.2f} km / {best['distance_coast_nm']:.2f} nm
 
-Check official closures and fishing restrictions.
+Official regulatory status:
+{fisheries_protection['official_status']}
+
+Juvenile protection status:
+{fisheries_protection['juvenile_status']}
+
+E-AWARE ecological advisory:
+{ecological_display}
+
+IMPORTANT:
+Official fishing status is not live-verified.
+Check current PRODUCE closures, temporary suspensions
+and local fishing restrictions before fishing.
+
 E-AWARE identifies higher-suitability habitat zones,
-not exact fish locations or navigation routes.
+not exact fish locations, legal fishing permission,
+or navigation routes.
 """
 
 st.text_area(
     "Example SMS advisory",
     sms_message,
-    height=520
+    height=680
 )
 
 st.caption(
