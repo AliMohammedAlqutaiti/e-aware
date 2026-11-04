@@ -8822,6 +8822,13 @@ if not email_configured:
         "Streamlit Cloud Secrets."
     )
 
+    st.caption(
+        "Secrets detected — "
+        f"RESEND_API_KEY: {'✅' if 'RESEND_API_KEY' in st.secrets else '❌'} | "
+        f"EAWARE_EMAIL_FROM: {'✅' if 'EAWARE_EMAIL_FROM' in st.secrets else '❌'} | "
+        f"EAWARE_EMAIL_TO: {'✅' if 'EAWARE_EMAIL_TO' in st.secrets else '❌'}"
+    )
+
 else:
 
     if st.button(
