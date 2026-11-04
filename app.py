@@ -2746,6 +2746,291 @@ def experimental_rank_agreement_label(
     return "Low"
 
 
+def assess_primary_hsi_confidence(
+    ocean,
+    current_date,
+    current_data,
+    available_dates
+):
+    """
+    Engineering confidence diagnostic for the PRIMARY
+    literature-based HSI.
+
+    This is NOT probability of fish presence.
+
+    Confidence considers:
+    1. completeness of the three HSI predictors;
+    2. freshness of the live environmental date;
+    3. availability of forecast dates.
+
+    Because the literature HSI has not yet been independently
+    validated against fish observations, overall confidence is
+    capped at MODERATE.
+    """
+
+    required_hsi = [
+        "temperature",
+        "salinity",
+        "oxygen_ml_l",
+    ]
+
+    same_date = ocean[
+        ocean[
+            "date"
+        ]
+        ==
+        current_date
+    ].copy()
+
+    # --------------------------------------------------------
+    # HSI predictor completeness
+    # --------------------------------------------------------
+
+    if same_date.empty:
+
+        coverage_pct = 0.0
+
+    else:
+
+        complete_mask = (
+            same_date[
+                required_hsi
+            ]
+            .notna()
+            .all(
+                axis=1
+            )
+        )
+
+        coverage_pct = float(
+            100.0
+            *
+            complete_mask.mean()
+        )
+
+    if coverage_pct >= 90.0:
+
+        coverage_score = 2
+        coverage_label = "Good"
+
+    elif coverage_pct >= 70.0:
+
+        coverage_score = 1
+        coverage_label = "Partial"
+
+    else:
+
+        coverage_score = 0
+        coverage_label = "Limited"
+
+
+    # --------------------------------------------------------
+    # Data freshness
+    #
+    # These are engineering diagnostic thresholds,
+    # not biological habitat thresholds.
+    # --------------------------------------------------------
+
+    today = pd.Timestamp(
+        date.today()
+    ).normalize()
+
+    data_day = pd.Timestamp(
+        current_date
+    ).normalize()
+
+    age_days = max(
+        0,
+        int(
+            (
+                today
+                -
+                data_day
+            ).days
+        )
+    )
+
+    if age_days <= 2:
+
+        freshness_score = 2
+        freshness_label = "Current"
+
+    elif age_days <= 5:
+
+        freshness_score = 1
+        freshness_label = "Recent"
+
+    else:
+
+        freshness_score = 0
+        freshness_label = "Stale"
+
+
+    # --------------------------------------------------------
+    # Forecast-date availability
+    # --------------------------------------------------------
+
+    future_dates = [
+        d
+        for d in available_dates
+        if pd.Timestamp(
+            d
+        )
+        >=
+        pd.Timestamp(
+            current_date
+        )
+    ]
+
+    forecast_date_count = len(
+        future_dates
+    )
+
+    if forecast_date_count >= 3:
+
+        forecast_score = 2
+        forecast_label = "Good"
+
+    elif forecast_date_count >= 2:
+
+        forecast_score = 1
+        forecast_label = "Limited"
+
+    else:
+
+        forecast_score = 0
+        forecast_label = "Insufficient"
+
+
+    # --------------------------------------------------------
+    # Raw operational support
+    # --------------------------------------------------------
+
+    support_score = (
+        coverage_score
+        +
+        freshness_score
+        +
+        forecast_score
+    )
+
+    if support_score >= 5:
+
+        raw_support = "High"
+
+    elif support_score >= 3:
+
+        raw_support = "Moderate"
+
+    else:
+
+        raw_support = "Low"
+
+
+    # --------------------------------------------------------
+    # Evidence ceiling
+    #
+    # HSI is literature-based but not yet independently
+    # validated against observed anchoveta distributions.
+    # --------------------------------------------------------
+
+    if raw_support == "High":
+
+        overall_confidence = "Moderate"
+
+    else:
+
+        overall_confidence = raw_support
+
+
+    # --------------------------------------------------------
+    # Spatial diagnostics — displayed but NOT used to create
+    # the confidence category.
+    # --------------------------------------------------------
+
+    hsi_gap = np.nan
+    near_best_cells = 0
+
+    if (
+        "hsi"
+        in current_data.columns
+        and
+        current_data[
+            "hsi"
+        ].notna().any()
+    ):
+
+        max_hsi = float(
+            current_data[
+                "hsi"
+            ].max()
+        )
+
+        median_hsi = float(
+            current_data[
+                "hsi"
+            ].median()
+        )
+
+        hsi_gap = (
+            max_hsi
+            -
+            median_hsi
+        )
+
+        near_best_cells = int(
+            (
+                current_data[
+                    "hsi"
+                ]
+                >=
+                max_hsi - 0.01
+            ).sum()
+        )
+
+
+    return {
+        "overall_confidence":
+            overall_confidence,
+
+        "raw_operational_support":
+            raw_support,
+
+        "coverage_pct":
+            coverage_pct,
+
+        "coverage_label":
+            coverage_label,
+
+        "age_days":
+            age_days,
+
+        "freshness_label":
+            freshness_label,
+
+        "forecast_date_count":
+            forecast_date_count,
+
+        "forecast_label":
+            forecast_label,
+
+        "support_score":
+            support_score,
+
+        "hsi_gap":
+            hsi_gap,
+
+        "near_best_cells":
+            near_best_cells,
+
+        "evidence_ceiling":
+            "Moderate",
+
+        "independently_validated":
+            False,
+    }
+
+
 def hsi_class(
     value
 ):
@@ -5660,6 +5945,15 @@ best = current_data.loc[
     ].idxmax()
 ]
 
+hsi_confidence = (
+    assess_primary_hsi_confidence(
+        ocean,
+        current_date,
+        current_data,
+        available_dates
+    )
+)
+
 reference = habitat_reference(
     current_date.month
 )
@@ -6078,6 +6372,136 @@ else:
                 "unknown reason"
             )
         )
+    )
+
+
+st.subheader(
+    "🎯 Primary HSI Confidence"
+)
+
+st.caption(
+    "Confidence describes how well the current HSI output is "
+    "supported by available environmental data. "
+    "It is not a probability that fish are present."
+)
+
+confidence_cols = st.columns(
+    4
+)
+
+confidence_cols[0].metric(
+    "HSI Confidence",
+    hsi_confidence[
+        "overall_confidence"
+    ]
+)
+
+confidence_cols[1].metric(
+    "HSI Data Coverage",
+    (
+        f"{hsi_confidence['coverage_pct']:.0f}%"
+    )
+)
+
+confidence_cols[2].metric(
+    "Data Age",
+    (
+        f"{hsi_confidence['age_days']} day"
+        if hsi_confidence[
+            "age_days"
+        ] == 1
+        else
+        f"{hsi_confidence['age_days']} days"
+    )
+)
+
+confidence_cols[3].metric(
+    "Forecast Dates Available",
+    hsi_confidence[
+        "forecast_date_count"
+    ]
+)
+
+if (
+    hsi_confidence[
+        "overall_confidence"
+    ]
+    ==
+    "Low"
+):
+
+    st.warning(
+        "Primary HSI confidence is LOW. "
+        "Treat the current habitat pattern cautiously because "
+        "environmental data coverage, freshness or forecast "
+        "availability is limited."
+    )
+
+else:
+
+    st.info(
+        "Primary HSI confidence is capped at MODERATE because "
+        "the literature-based HSI has not yet been independently "
+        "validated against observed anchoveta distributions."
+    )
+
+
+with st.expander(
+    "🔎 How is HSI confidence determined?"
+):
+
+    detail_cols = st.columns(
+        3
+    )
+
+    detail_cols[0].metric(
+        "Predictor Completeness",
+        hsi_confidence[
+            "coverage_label"
+        ]
+    )
+
+    detail_cols[1].metric(
+        "Environmental Freshness",
+        hsi_confidence[
+            "freshness_label"
+        ]
+    )
+
+    detail_cols[2].metric(
+        "Forecast Coverage",
+        hsi_confidence[
+            "forecast_label"
+        ]
+    )
+
+    if pd.notna(
+        hsi_confidence[
+            "hsi_gap"
+        ]
+    ):
+
+        st.write(
+            "**Spatial diagnostic:** "
+            f"best HSI exceeds the median grid-cell HSI by "
+            f"{hsi_confidence['hsi_gap']:.2f}. "
+            f"{hsi_confidence['near_best_cells']} live grid cell(s) "
+            "are within 0.01 HSI of the current best cell."
+        )
+
+    st.markdown(
+        """
+**Confidence rules**
+
+- HSI predictor coverage ≥90% → good data support.
+- Coverage 70–89% → partial support.
+- Coverage <70% → limited support.
+- Environmental data ≤2 days old → current.
+- 3 or more current/future forecast dates → good forecast coverage.
+- These thresholds are **engineering diagnostics**, not biological thresholds.
+- Even with excellent environmental data, overall confidence is currently capped at **Moderate** because the HSI has not yet been independently validated against observed fish distributions.
+- Confidence must never be interpreted as probability of anchoveta presence.
+"""
     )
 
 
