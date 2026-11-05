@@ -8989,6 +8989,261 @@ else:
             )
 
 
+# ============================================================
+# DAILY ADVISORY SUBSCRIPTION — OPERATIONAL MODE
+# ============================================================
+
+st.subheader(
+    "🔔 Daily Advisory Subscription"
+)
+
+st.caption(
+    "Operational mode: subscribe once to receive the E-AWARE "
+    "daily advisory automatically. Scheduled delivery will run "
+    "at 4:00 AM Peru time once the daily scheduler is connected."
+)
+
+supabase_configured = (
+    "SUPABASE_URL" in st.secrets
+    and
+    "SUPABASE_SECRET_KEY" in st.secrets
+)
+
+subscription_email = st.text_input(
+    "Email for daily advisory",
+    placeholder="name@example.com",
+    key="eaware_subscription_email"
+)
+
+subscription_cols = st.columns(2)
+
+if not supabase_configured:
+
+    st.warning(
+        "Daily subscription storage is not configured."
+    )
+
+    st.caption(
+        "SUPABASE_URL: "
+        f"{'✅' if 'SUPABASE_URL' in st.secrets else '❌'} | "
+        "SUPABASE_SECRET_KEY: "
+        f"{'✅' if 'SUPABASE_SECRET_KEY' in st.secrets else '❌'}"
+    )
+
+else:
+
+    if subscription_cols[0].button(
+        "🔔 Subscribe to Daily Advisory",
+        width="stretch"
+    ):
+
+        try:
+
+            import re
+            from datetime import datetime, timezone
+            from supabase import create_client
+
+            clean_email = (
+                subscription_email
+                .strip()
+                .lower()
+            )
+
+            email_pattern = (
+                r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+            )
+
+            if not re.match(
+                email_pattern,
+                clean_email
+            ):
+
+                st.error(
+                    "Please enter a valid email address."
+                )
+
+            else:
+
+                supabase_client = create_client(
+                    str(
+                        st.secrets[
+                            "SUPABASE_URL"
+                        ]
+                    ),
+                    str(
+                        st.secrets[
+                            "SUPABASE_SECRET_KEY"
+                        ]
+                    )
+                )
+
+                existing = (
+                    supabase_client
+                    .table(
+                        "eaware_subscribers"
+                    )
+                    .select(
+                        "id,email,active"
+                    )
+                    .eq(
+                        "email",
+                        clean_email
+                    )
+                    .execute()
+                )
+
+                now_iso = (
+                    datetime.now(
+                        timezone.utc
+                    ).isoformat()
+                )
+
+                if existing.data:
+
+                    (
+                        supabase_client
+                        .table(
+                            "eaware_subscribers"
+                        )
+                        .update(
+                            {
+                                "active": True,
+                                "updated_at": now_iso,
+                            }
+                        )
+                        .eq(
+                            "email",
+                            clean_email
+                        )
+                        .execute()
+                    )
+
+                else:
+
+                    (
+                        supabase_client
+                        .table(
+                            "eaware_subscribers"
+                        )
+                        .insert(
+                            {
+                                "email": clean_email,
+                                "active": True,
+                                "updated_at": now_iso,
+                            }
+                        )
+                        .execute()
+                    )
+
+                st.success(
+                    "✅ Subscribed successfully. "
+                    "This address is now registered for the "
+                    "daily E-AWARE advisory."
+                )
+
+        except Exception as exc:
+
+            st.error(
+                "Subscription failed. "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+
+    if subscription_cols[1].button(
+        "🔕 Unsubscribe",
+        width="stretch"
+    ):
+
+        try:
+
+            import re
+            from datetime import datetime, timezone
+            from supabase import create_client
+
+            clean_email = (
+                subscription_email
+                .strip()
+                .lower()
+            )
+
+            email_pattern = (
+                r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+            )
+
+            if not re.match(
+                email_pattern,
+                clean_email
+            ):
+
+                st.error(
+                    "Please enter a valid email address."
+                )
+
+            else:
+
+                supabase_client = create_client(
+                    str(
+                        st.secrets[
+                            "SUPABASE_URL"
+                        ]
+                    ),
+                    str(
+                        st.secrets[
+                            "SUPABASE_SECRET_KEY"
+                        ]
+                    )
+                )
+
+                result = (
+                    supabase_client
+                    .table(
+                        "eaware_subscribers"
+                    )
+                    .update(
+                        {
+                            "active": False,
+                            "updated_at":
+                                datetime.now(
+                                    timezone.utc
+                                ).isoformat(),
+                        }
+                    )
+                    .eq(
+                        "email",
+                        clean_email
+                    )
+                    .execute()
+                )
+
+                if result.data:
+
+                    st.success(
+                        "✅ Unsubscribed successfully."
+                    )
+
+                else:
+
+                    st.info(
+                        "That email was not found in the "
+                        "subscriber list."
+                    )
+
+        except Exception as exc:
+
+            st.error(
+                "Unsubscribe failed. "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+
+st.info(
+    "📤 **Send Now** above is the presentation/demo option. "
+    "🔔 **Daily Advisory Subscription** is the operational "
+    "implementation. Automatic 4:00 AM Peru delivery will be "
+    "connected in the next step."
+)
+
+
 st.caption(
     "The displayed depth is GEBCO seafloor bathymetry at the "
     "highest-HSI grid cell. E-AWARE does not currently predict "
