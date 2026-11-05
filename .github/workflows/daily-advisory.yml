@@ -6,6 +6,12 @@ on:
       timezone: "America/Lima"
 
   workflow_dispatch:
+    inputs:
+      failure_stage:
+        description: "Optional controlled failure stage for testing"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -30,6 +36,8 @@ jobs:
       SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
 
       FORCE_SEND: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+
+      EAWARE_TEST_FAILURE_STAGE: ${{ github.event.inputs.failure_stage || '' }}
 
     steps:
 
@@ -162,6 +170,10 @@ jobs:
               "/tmp/eaware_advisory.json"
           )
 
+          failure = Path(
+              "/tmp/eaware_failure.json"
+          )
+
           with sync_playwright() as p:
 
               browser = p.chromium.launch(
@@ -177,6 +189,23 @@ jobs:
               )
 
               for _ in range(180):
+
+                  if failure.exists():
+
+                      print(
+                          "E-AWARE reported a live-data failure:"
+                      )
+
+                      print(
+                          failure.read_text(
+                              encoding="utf-8"
+                          )
+                      )
+
+                      raise RuntimeError(
+                          "E-AWARE stopped because required "
+                          "environmental data were unavailable."
+                      )
 
                   if output.exists():
                       print(

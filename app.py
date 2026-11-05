@@ -5919,6 +5919,36 @@ end_date = (
     )
 )
 
+live_load_stage = "Initialisation"
+
+
+def _eaware_test_live_failure(stage):
+    """
+    Controlled failure hook used only for engineering tests.
+
+    It has no effect unless EAWARE_TEST_FAILURE_STAGE is
+    deliberately supplied as an environment variable.
+    """
+
+    import os
+
+    requested = os.environ.get(
+        "EAWARE_TEST_FAILURE_STAGE",
+        ""
+    ).strip()
+
+    if (
+        requested
+        and
+        requested.casefold()
+        ==
+        stage.casefold()
+    ):
+        raise RuntimeError(
+            f"Simulated E-AWARE failure at stage: {stage}"
+        )
+
+
 try:
 
     with st.status(
@@ -5926,12 +5956,24 @@ try:
         expanded=True
     ) as status:
 
+        live_load_stage = "Copernicus credentials"
+
+        _eaware_test_live_failure(
+            live_load_stage
+        )
+
         username, password = (
             get_credentials()
         )
 
         status.write(
             "🔐 Checking Copernicus credentials..."
+        )
+
+        live_load_stage = "Copernicus authentication"
+
+        _eaware_test_live_failure(
+            live_load_stage
         )
 
         valid = copernicusmarine.login(
@@ -5952,6 +5994,12 @@ try:
             "🌡️ 1/7 Temperature"
         )
 
+        live_load_stage = "Temperature"
+
+        _eaware_test_live_failure(
+            live_load_stage
+        )
+
         temperature_data = (
             load_temperature(
                 selected_date,
@@ -5961,6 +6009,12 @@ try:
 
         status.write(
             "🧂 2/7 Salinity"
+        )
+
+        live_load_stage = "Salinity"
+
+        _eaware_test_live_failure(
+            live_load_stage
         )
 
         salinity_data = (
@@ -5974,6 +6028,12 @@ try:
             "🌊 3/7 SST anomaly"
         )
 
+        live_load_stage = "SST anomaly"
+
+        _eaware_test_live_failure(
+            live_load_stage
+        )
+
         anomaly_data = (
             load_sst_anomaly(
                 selected_date,
@@ -5983,6 +6043,12 @@ try:
 
         status.write(
             "🫧 4/7 3D oxygen profile"
+        )
+
+        live_load_stage = "Oxygen profile"
+
+        _eaware_test_live_failure(
+            live_load_stage
         )
 
         oxygen_profile_data = (
@@ -6013,6 +6079,12 @@ try:
             "🗻 5/7 GEBCO bathymetry"
         )
 
+        live_load_stage = "GEBCO bathymetry"
+
+        _eaware_test_live_failure(
+            live_load_stage
+        )
+
         ocean = attach_gebco_bathymetry(
             ocean
         )
@@ -6021,12 +6093,24 @@ try:
             "📏 6/7 Distance from coast"
         )
 
+        live_load_stage = "Distance from coast"
+
+        _eaware_test_live_failure(
+            live_load_stage
+        )
+
         ocean = attach_distance_to_coast(
             ocean
         )
 
         status.write(
             "🫧 7/7 Seabed-constrained oxycline"
+        )
+
+        live_load_stage = "Seabed-constrained oxycline"
+
+        _eaware_test_live_failure(
+            live_load_stage
         )
 
         ocean = attach_seabed_constrained_oxycline(
@@ -6049,14 +6133,72 @@ try:
 
 except Exception as error:
 
+    import json as _failure_json
+    import os as _failure_os
+    from pathlib import Path as _FailurePath
+    from datetime import datetime as _FailureDateTime
+    from datetime import timezone as _FailureTimezone
+
+    failure_message = (
+        f"E-AWARE live-data failure during "
+        f"{live_load_stage}: "
+        f"{type(error).__name__}: {error}"
+    )
+
+    # Scheduled automation receives an explicit failure marker.
+    # This prevents waiting for an advisory that can never be
+    # generated and ensures no normal email is sent.
+    if (
+        _failure_os.environ.get(
+            "EAWARE_AUTOMATION_MODE"
+        )
+        ==
+        "1"
+    ):
+
+        failure_payload = {
+            "generated_at_utc":
+                _FailureDateTime.now(
+                    _FailureTimezone.utc
+                ).isoformat(),
+
+            "stage":
+                live_load_stage,
+
+            "error_type":
+                type(error).__name__,
+
+            "message":
+                str(error),
+        }
+
+        _FailurePath(
+            "/tmp/eaware_failure.json"
+        ).write_text(
+            _failure_json.dumps(
+                failure_payload,
+                indent=2
+            ),
+            encoding="utf-8"
+        )
+
     st.error(
         "❌ E-AWARE could not load all live environmental data."
+    )
+
+    st.warning(
+        f"Failure stage: {live_load_stage}"
     )
 
     st.code(
         str(
             error
         )
+    )
+
+    st.caption(
+        "No habitat advisory is generated from incomplete "
+        "environmental data, and scheduled delivery is stopped."
     )
 
     st.stop()
