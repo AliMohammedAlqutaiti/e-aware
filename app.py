@@ -32,8 +32,9 @@ st.info(
     "not probability of fish presence."
 )
 
-MIN_LON, MAX_LON = -81.50, -81.20
+MIN_LON, MAX_LON = -82.15, -81.20
 MIN_LAT, MAX_LAT = -4.60, -4.36
+MAX_OPERATIONAL_DISTANCE_NM = 50.0
 
 COMMUNITIES = pd.DataFrame([
     {"name": "Lobitos", "lat": -4.4567, "lon": -81.2849},
@@ -6103,6 +6104,21 @@ try:
             ocean
         )
 
+        # Operational E-AWARE coastal corridor.
+        # The larger bounding box is used for data retrieval,
+        # but habitat analysis is limited to ocean cells within
+        # 50 nautical miles of the coastline.
+        ocean = ocean[
+            ocean["distance_coast_nm"]
+            <= MAX_OPERATIONAL_DISTANCE_NM
+        ].copy()
+
+        if ocean.empty:
+            raise RuntimeError(
+                "No valid ocean cells remain within the "
+                "50 nautical mile E-AWARE coastal corridor."
+            )
+
         status.write(
             "🫧 7/7 Seabed-constrained oxycline"
         )
@@ -6496,7 +6512,7 @@ cols[1].metric(
 )
 
 cols[2].metric(
-    "GEBCO Depth Estimate",
+    "GEBCO Seafloor Depth",
     f"{best['water_depth_m']:.0f} m"
 )
 
@@ -7394,6 +7410,36 @@ community_layer = pdk.Layer(
         True
 )
 
+# Automatically frame the valid live E-AWARE ocean cells.
+map_center_lat = float(map_data["lat"].mean())
+map_center_lon = float(map_data["lon"].mean())
+
+map_lat_span = float(
+    map_data["lat"].max()
+    -
+    map_data["lat"].min()
+)
+
+map_lon_span = float(
+    map_data["lon"].max()
+    -
+    map_data["lon"].min()
+)
+
+map_span = max(
+    map_lat_span,
+    map_lon_span
+)
+
+if map_span >= 0.90:
+    map_zoom = 7.8
+elif map_span >= 0.60:
+    map_zoom = 8.2
+elif map_span >= 0.35:
+    map_zoom = 8.7
+else:
+    map_zoom = 9.3
+
 st.pydeck_chart(
     pdk.Deck(
         map_style=
@@ -7402,11 +7448,11 @@ st.pydeck_chart(
         initial_view_state=
             pdk.ViewState(
                 latitude=
-                    -4.49,
+                    map_center_lat,
                 longitude=
-                    -81.36,
+                    map_center_lon,
                 zoom=
-                    9.5
+                    map_zoom
             ),
 
         layers=[
@@ -7556,7 +7602,7 @@ st.info(
 # HIGHEST HABITAT / FORECAST SHIFT
 # ============================================================
 st.subheader(
-    "📍 Highest Relative Habitat Suitability"
+    "📍 Highest HSI Cell Within Configured Corridor"
 )
 
 cols = st.columns(
@@ -7583,7 +7629,7 @@ cols[2].metric(
 )
 
 cols[3].metric(
-    "GEBCO Depth",
+    "GEBCO Seafloor Depth",
     f"{best['water_depth_m']:.0f} m"
 )
 
@@ -7593,6 +7639,12 @@ cols[4].metric(
         f"{best['distance_coast_km']:.2f} km / "
         f"{best['distance_coast_nm']:.2f} nm"
     )
+)
+
+st.caption(
+    "This is the grid cell with the highest relative HSI inside the "
+    "configured E-AWARE corridor. GEBCO depth is seabed bathymetry beneath "
+    "the cell and is not a predicted anchoveta swimming or fishing depth."
 )
 
 st.subheader(
@@ -8032,10 +8084,10 @@ st.markdown(
 )
 
 st.caption(
-    "The shift is calculated from movement of the "
-    "HSI-weighted suitable-habitat centroid. "
-    "It is not a predicted exact fish location or "
-    "navigation instruction."
+    "The reported shift is movement of the HSI-weighted centroid of the "
+    "relatively highest-suitability cells, not movement of individual fish. "
+    "A large value can occur when relative habitat suitability redistributes "
+    "from one part of the study corridor to another over the forecast period."
 )
 
 if (
@@ -8884,11 +8936,12 @@ Date:
 Anchoveta habitat suitability:
 {hsi_class(best_hsi).upper()} (HSI {best_hsi:.2f})
 
-Higher-suitability zone:
+Highest HSI grid cell within configured corridor:
 {best_zone_text}
 
-Seafloor depth at highest-HSI cell:
+GEBCO seafloor depth beneath HSI cell:
 {best_seafloor_depth_text}
+(Not predicted fish depth)
 
 Predicted suitable-habitat shift:
 {direction_text}
