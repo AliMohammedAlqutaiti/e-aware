@@ -1,0 +1,227 @@
+name: E-AWARE Daily Advisory
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+      timezone: "America/Lima"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+
+  daily-advisory:
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 25
+
+    env:
+
+      COPERNICUS_USERNAME: ${{ secrets.COPERNICUS_USERNAME }}
+      COPERNICUS_PASSWORD: ${{ secrets.COPERNICUS_PASSWORD }}
+
+      GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
+      GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+
+      FORCE_SEND: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+
+    steps:
+
+      - name: Checkout E-AWARE
+        uses: actions/checkout@v4
+
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+
+      - name: Install E-AWARE dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+
+      - name: Create temporary Streamlit secrets
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          names = [
+              "COPERNICUS_USERNAME",
+              "COPERNICUS_PASSWORD",
+              "GMAIL_SENDER",
+              "GMAIL_APP_PASSWORD",
+              "SUPABASE_URL",
+              "SUPABASE_SECRET_KEY",
+          ]
+
+          missing = [
+              name
+              for name in names
+              if not os.environ.get(name)
+          ]
+
+          if missing:
+              raise RuntimeError(
+                  "Missing GitHub Actions secrets: "
+                  + ", ".join(missing)
+              )
+
+          Path(
+              ".streamlit"
+          ).mkdir(
+              exist_ok=True
+          )
+
+          content = "\n".join(
+              f"{name} = {json.dumps(os.environ[name])}"
+              for name in names
+          )
+
+          Path(
+              ".streamlit/secrets.toml"
+          ).write_text(
+              content + "\n",
+              encoding="utf-8"
+          )
+
+          print(
+              "Temporary Streamlit secrets created."
+          )
+          PY
+
+
+      - name: Start E-AWARE calculation engine
+        run: |
+          EAWARE_AUTOMATION_MODE=1 \
+          nohup streamlit run app.py \
+            --server.port 8501 \
+            --server.headless true \
+            > /tmp/eaware_streamlit.log 2>&1 &
+
+          echo $! > /tmp/eaware_streamlit.pid
+
+
+      - name: Wait for Streamlit
+        run: |
+          python - <<'PY'
+          import time
+          import urllib.request
+
+          url = (
+              "http://127.0.0.1:8501/"
+              "_stcore/health"
+          )
+
+          for _ in range(90):
+
+              try:
+
+                  with urllib.request.urlopen(
+                      url,
+                      timeout=5
+                  ) as response:
+
+                      if response.status == 200:
+                          print(
+                              "E-AWARE server ready."
+                          )
+                          break
+
+              except Exception:
+                  pass
+
+              time.sleep(2)
+
+          else:
+              raise RuntimeError(
+                  "Streamlit server did not start."
+              )
+          PY
+
+
+      - name: Generate current E-AWARE advisory
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          output = Path(
+              "/tmp/eaware_advisory.json"
+          )
+
+          with sync_playwright() as p:
+
+              browser = p.chromium.launch(
+                  headless=True
+              )
+
+              page = browser.new_page()
+
+              page.goto(
+                  "http://127.0.0.1:8501",
+                  wait_until="domcontentloaded",
+                  timeout=120000
+              )
+
+              for _ in range(180):
+
+                  if output.exists():
+                      print(
+                          "E-AWARE advisory generated."
+                      )
+                      break
+
+                  page.wait_for_timeout(
+                      2000
+                  )
+
+              else:
+
+                  try:
+                      print(
+                          page.locator(
+                              "body"
+                          ).inner_text()[:5000]
+                      )
+                  except Exception:
+                      pass
+
+                  raise RuntimeError(
+                      "Timed out waiting for advisory generation."
+                  )
+
+              browser.close()
+          PY
+
+
+      - name: Send advisory to active subscribers
+        run: |
+          python daily_advisory_job.py
+
+
+      - name: Show application log if failed
+        if: failure()
+        run: |
+          echo "===== E-AWARE LOG ====="
+          tail -n 150 /tmp/eaware_streamlit.log || true
+
+
+      - name: Stop Streamlit
+        if: always()
+        run: |
+          if [ -f /tmp/eaware_streamlit.pid ]; then
+            kill "$(cat /tmp/eaware_streamlit.pid)" || true
+          fi
