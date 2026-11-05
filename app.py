@@ -7648,7 +7648,7 @@ st.caption(
 )
 
 st.subheader(
-    "🐟 Current MVP Habitat Reference"
+    "🐟 Literature-Based HSI Reference Envelope"
 )
 
 cols = st.columns(
@@ -7941,6 +7941,71 @@ for forecast_date in available_dates:
                 ),
         }
     )
+
+
+# ============================================================
+# HSI COMPONENT TRANSPARENCY
+# ============================================================
+st.markdown(
+    "#### 🧮 HSI Component Score Breakdown"
+)
+
+hsi_cols = st.columns(4)
+
+hsi_cols[0].metric(
+    "Temperature Score",
+    f"{float(best['temperature_score']):.2f}"
+)
+
+hsi_cols[1].metric(
+    "Salinity Score",
+    f"{float(best['salinity_score']):.2f}"
+)
+
+hsi_cols[2].metric(
+    "Oxygen Score",
+    f"{float(best['oxygen_score']):.2f}"
+)
+
+hsi_cols[3].metric(
+    "Final HSI",
+    f"{float(best['hsi']):.2f}"
+)
+
+st.caption(
+    "The operational HSI is the equal-weight mean of the "
+    "temperature, salinity and surface dissolved-oxygen scores. "
+    "A value outside the central literature reference envelope "
+    "does not automatically force the whole HSI to zero because "
+    "each environmental variable is scored independently before "
+    "the three scores are averaged."
+)
+
+with st.expander(
+    "How is the HSI calculated?",
+    expanded=False
+):
+    st.markdown(
+        """
+**Operational HSI formula**
+
+`HSI = (Temperature Score + Salinity Score + Oxygen Score) / 3`
+
+Each component ranges from **0 to 1**.
+
+- **1.00** means the value is inside its literature reference range.
+- Values outside the reference range decrease through the existing
+  shoulder/taper function.
+- Scores are clipped between **0 and 1**.
+- Temperature, salinity and oxygen currently have equal weight.
+- Bathymetry, coast distance, oxycline and season are not given
+  hand-built HSI weights.
+
+This breakdown explains the operational HSI only. It does not make
+the HSI a probability that anchoveta are present.
+        """
+    )
+
 
 st.subheader(
     "🧭 Predicted Suitable-Habitat Shift"
@@ -9060,15 +9125,16 @@ recipient_email = st.text_input(
 if not gmail_configured:
 
     st.warning(
-        "Gmail delivery is not configured in this environment."
+        "Email delivery is unavailable in this local environment. The deployed backend is configured separately."
     )
 
-    st.caption(
-        "GMAIL_SENDER: "
-        f"{'✅' if 'GMAIL_SENDER' in st.secrets else '❌'} | "
-        "GMAIL_APP_PASSWORD: "
-        f"{'✅' if 'GMAIL_APP_PASSWORD' in st.secrets else '❌'}"
-    )
+    with st.expander("Developer email configuration", expanded=False):
+        st.caption(
+                "GMAIL_SENDER: "
+                f"{'✅' if 'GMAIL_SENDER' in st.secrets else '❌'} | "
+                "GMAIL_APP_PASSWORD: "
+                f"{'✅' if 'GMAIL_APP_PASSWORD' in st.secrets else '❌'}"
+            )
 
 else:
 
@@ -9261,15 +9327,16 @@ subscription_cols = st.columns(2)
 if not supabase_configured:
 
     st.warning(
-        "Daily subscription storage is not configured."
+        "Daily subscription management is unavailable in this local environment. The deployed backend is configured separately."
     )
 
-    st.caption(
-        "SUPABASE_URL: "
-        f"{'✅' if 'SUPABASE_URL' in st.secrets else '❌'} | "
-        "SUPABASE_SECRET_KEY: "
-        f"{'✅' if 'SUPABASE_SECRET_KEY' in st.secrets else '❌'}"
-    )
+    with st.expander("Developer subscription configuration", expanded=False):
+        st.caption(
+                "SUPABASE_URL: "
+                f"{'✅' if 'SUPABASE_URL' in st.secrets else '❌'} | "
+                "SUPABASE_SECRET_KEY: "
+                f"{'✅' if 'SUPABASE_SECRET_KEY' in st.secrets else '❌'}"
+            )
 
 else:
 
