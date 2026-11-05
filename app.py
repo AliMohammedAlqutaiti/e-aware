@@ -8791,7 +8791,7 @@ st.text_area(
 )
 
 # ============================================================
-# REAL EMAIL ADVISORY DELIVERY
+# REAL EMAIL ADVISORY DELIVERY — GMAIL SMTP
 # ============================================================
 
 st.subheader(
@@ -8799,158 +8799,187 @@ st.subheader(
 )
 
 st.caption(
-    "The current E-AWARE advisory can be delivered by email. "
-    "SMS/GSM delivery remains a proposed future implementation."
+    "Enter an email address to receive the current E-AWARE "
+    "fisheries advisory. SMS/GSM remains a proposed future "
+    "implementation."
 )
 
-email_secret_names = [
-    "RESEND_API_KEY",
-    "EAWARE_EMAIL_FROM",
-    "EAWARE_EMAIL_TO",
-]
-
-email_configured = all(
-    key in st.secrets
-    for key in email_secret_names
+gmail_configured = (
+    "GMAIL_SENDER" in st.secrets
+    and
+    "GMAIL_APP_PASSWORD" in st.secrets
 )
 
-if not email_configured:
+recipient_email = st.text_input(
+    "Recipient email address",
+    placeholder="name@example.com",
+    key="eaware_recipient_email"
+)
 
-    st.info(
-        "Email delivery is not configured in this environment. "
-        "The required credentials are stored separately in "
-        "Streamlit Cloud Secrets."
+if not gmail_configured:
+
+    st.warning(
+        "Gmail delivery is not configured in this environment."
     )
 
     st.caption(
-        "Secrets detected — "
-        f"RESEND_API_KEY: {'✅' if 'RESEND_API_KEY' in st.secrets else '❌'} | "
-        f"EAWARE_EMAIL_FROM: {'✅' if 'EAWARE_EMAIL_FROM' in st.secrets else '❌'} | "
-        f"EAWARE_EMAIL_TO: {'✅' if 'EAWARE_EMAIL_TO' in st.secrets else '❌'}"
-    )
-
-    st.caption(
-        "Secrets detected — "
-        f"RESEND_API_KEY: {'✅' if 'RESEND_API_KEY' in st.secrets else '❌'} | "
-        f"EAWARE_EMAIL_FROM: {'✅' if 'EAWARE_EMAIL_FROM' in st.secrets else '❌'} | "
-        f"EAWARE_EMAIL_TO: {'✅' if 'EAWARE_EMAIL_TO' in st.secrets else '❌'}"
+        "GMAIL_SENDER: "
+        f"{'✅' if 'GMAIL_SENDER' in st.secrets else '❌'} | "
+        "GMAIL_APP_PASSWORD: "
+        f"{'✅' if 'GMAIL_APP_PASSWORD' in st.secrets else '❌'}"
     )
 
 else:
 
     if st.button(
         "📧 Send Current E-AWARE Advisory",
-        type="primary"
+        type="primary",
+        width="stretch"
     ):
 
         try:
 
             import html
-            import resend
+            import re
+            import smtplib
 
-            resend.api_key = st.secrets[
-                "RESEND_API_KEY"
-            ]
+            from email.message import EmailMessage
 
-            safe_message = html.escape(
-                sms_message
+
+            recipient_email = recipient_email.strip()
+
+            email_pattern = (
+                r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
             )
 
-            email_html = f"""
-            <div style="
-                font-family: Arial, sans-serif;
-                max-width: 700px;
-                margin: auto;
-                color: #222;
-            ">
-
-                <h1 style="
-                    margin-bottom: 4px;
-                ">
-                    E-AWARE Fisheries Advisory
-                </h1>
-
-                <p style="
-                    color: #666;
-                    margin-top: 0;
-                ">
-                    El Niño Adaptive Fisheries Intelligence
-                </p>
-
-                <div style="
-                    background: #f4f4f4;
-                    border-radius: 12px;
-                    padding: 22px;
-                    margin-top: 24px;
-                ">
-
-                    <pre style="
-                        white-space: pre-wrap;
-                        font-family: Arial, sans-serif;
-                        line-height: 1.6;
-                        margin: 0;
-                    ">{safe_message}</pre>
-
-                </div>
-
-                <p style="
-                    margin-top: 24px;
-                    font-size: 13px;
-                    color: #666;
-                ">
-                    E-AWARE provides habitat decision support only.
-                    It does not provide legal fishing permission,
-                    exact fish locations or navigation instructions.
-                    Current PRODUCE regulations must be verified
-                    before fishing.
-                </p>
-
-            </div>
-            """
-
-            email_result = resend.Emails.send(
-                {
-                    "from":
-                        st.secrets[
-                            "EAWARE_EMAIL_FROM"
-                        ],
-
-                    "to": [
-                        st.secrets[
-                            "EAWARE_EMAIL_TO"
-                        ]
-                    ],
-
-                    "subject":
-                        f"E-AWARE Fisheries Advisory — {current_date}",
-
-                    "html":
-                        email_html,
-                }
-            )
-
-            if isinstance(
-                email_result,
-                dict
+            if not re.match(
+                email_pattern,
+                recipient_email
             ):
 
-                email_id = email_result.get(
-                    "id",
-                    "sent"
+                st.error(
+                    "Please enter a valid email address."
                 )
 
             else:
 
-                email_id = getattr(
-                    email_result,
-                    "id",
-                    "sent"
+                sender_email = str(
+                    st.secrets[
+                        "GMAIL_SENDER"
+                    ]
+                ).strip()
+
+                app_password = str(
+                    st.secrets[
+                        "GMAIL_APP_PASSWORD"
+                    ]
+                ).replace(
+                    " ",
+                    ""
+                ).strip()
+
+                safe_message = html.escape(
+                    sms_message
                 )
 
-            st.success(
-                "✅ E-AWARE advisory email sent successfully. "
-                f"Delivery ID: {email_id}"
-            )
+                email_html = f"""
+                <div style="
+                    font-family: Arial, sans-serif;
+                    max-width: 700px;
+                    margin: auto;
+                    color: #222;
+                ">
+
+                    <h1>
+                        E-AWARE Fisheries Advisory
+                    </h1>
+
+                    <p style="color:#666;">
+                        El Niño Adaptive Fisheries Intelligence
+                    </p>
+
+                    <div style="
+                        background:#f4f4f4;
+                        border-radius:12px;
+                        padding:22px;
+                        margin-top:20px;
+                    ">
+
+                        <pre style="
+                            white-space:pre-wrap;
+                            font-family:Arial, sans-serif;
+                            line-height:1.6;
+                            margin:0;
+                        ">{safe_message}</pre>
+
+                    </div>
+
+                    <p style="
+                        margin-top:24px;
+                        font-size:13px;
+                        color:#666;
+                    ">
+                        E-AWARE provides habitat decision support only.
+                        It does not provide legal fishing permission,
+                        exact fish locations or navigation instructions.
+                        Current PRODUCE regulations must be verified
+                        before fishing.
+                    </p>
+
+                </div>
+                """
+
+                msg = EmailMessage()
+
+                msg[
+                    "Subject"
+                ] = (
+                    f"E-AWARE Fisheries Advisory — "
+                    f"{current_date}"
+                )
+
+                msg[
+                    "From"
+                ] = (
+                    f"E-AWARE <{sender_email}>"
+                )
+
+                msg[
+                    "To"
+                ] = recipient_email
+
+                msg.set_content(
+                    sms_message
+                )
+
+                msg.add_alternative(
+                    email_html,
+                    subtype="html"
+                )
+
+                with smtplib.SMTP(
+                    "smtp.gmail.com",
+                    587,
+                    timeout=30
+                ) as smtp:
+
+                    smtp.ehlo()
+                    smtp.starttls()
+                    smtp.ehlo()
+
+                    smtp.login(
+                        sender_email,
+                        app_password
+                    )
+
+                    smtp.send_message(
+                        msg
+                    )
+
+                st.success(
+                    "✅ E-AWARE advisory sent successfully to "
+                    f"{recipient_email}"
+                )
 
         except Exception as exc:
 
