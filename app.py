@@ -25,7 +25,7 @@ st.caption(
 
 st.info(
     "E-AWARE uses the literature-based Habitat Suitability Index (HSI) "
-    "as its PRIMARY operational habitat model. "
+    "as its PRIMARY habitat model. "
     "A coast-matched conditional logistic model is retained as an "
     "EXPERIMENTAL secondary research layer. "
     "The experimental ML score is relative habitat suitability, "
@@ -4165,7 +4165,7 @@ def describe_observation_dataset(raw, source_path):
         "source_label": "Repository-managed anchoveta observation dataset",
         "dataset_role": (
             "Candidate observation dataset — training suitability is determined "
-            "by the Step 3 quality-control audit"
+            "by the data quality-control audit"
         ),
         "status_kind": "info",
     }
@@ -4478,7 +4478,7 @@ def matched_qc_audit(
             "summary": pd.DataFrame(),
             "predictor_completeness": pd.DataFrame(),
             "candidate_rows": pd.DataFrame(),
-            "status": "Run V2 Step 2 matching before environmental QC"
+            "status": "Run historical environmental matching before environmental QC"
         }
 
     work = matched.copy()
@@ -8451,7 +8451,7 @@ else:
             )
 
         with st.expander(
-            "Open V2 Step 3A observation QC details",
+            "Open observation QC details",
             expanded=False
         ):
 
@@ -8668,7 +8668,7 @@ else:
 
                     hist_status.update(
                         label=
-                            "✅ V2 Step 2 matching complete",
+                            "✅ Historical environmental matching complete",
                         state=
                             "complete",
                         expanded=
@@ -8807,7 +8807,7 @@ else:
                 if matched_count > 0:
 
                     st.success(
-                        "V2 Step 2 has created a historical "
+                        "Historical environmental matching has created a historical "
                         "observation + environmental predictor table. "
                         "The next stage is quality control and predictor "
                         "completeness checking before any model training."
@@ -8930,7 +8930,7 @@ else:
                     )
 
                 st.download_button(
-                    "⬇️ Download V2 Step 3 QC summary",
+                    "⬇️ Download data-quality QC summary",
                     data=
                         matched_qc[
                             "summary"
@@ -9854,11 +9854,11 @@ with st.expander(
         "- Historical oxycline is calculated from the 1 mL/L dissolved-oxygen threshold and constrained by local GEBCO water depth.",
         "- A missing historical record is never interpreted as fish absence.",
         "- The Streamlit matcher intentionally limits the number of observations processed in one interactive run. A large national archive should later be batch-processed offline and versioned.",
-        "- A true historical SST-anomaly predictor is not added in Step 2. It should be calculated from a documented historical climatology rather than copied from the live forecast-anomaly product.",
-        "- Step 2 creates candidate predictor rows only; it does not prove habitat-model accuracy.",
-        "- Step 3 QC checks structural and environmental data quality, but it cannot prove that survey absences are valid unless the source methodology supports that interpretation.",
+        "- A true historical SST-anomaly predictor is not included in the historical environmental matching. It should be calculated from a documented historical climatology rather than copied from the live forecast-anomaly product.",
+        "- Historical environmental matching creates candidate predictor rows only; it does not prove habitat-model accuracy.",
+        "- Data-quality QC checks structural and environmental data quality, but it cannot prove that survey absences are valid unless the source methodology supports that interpretation.",
         "- QC match-distance thresholds are engineering warning limits for investigation; they are not biological habitat thresholds.",
-        "- Passing Step 3 QC does not remove sampling bias, spatial autocorrelation or survey-design dependence.",
+        "- Passing data-quality QC does not remove sampling bias, spatial autocorrelation or survey-design dependence.",
     ]
 
     st.markdown(
