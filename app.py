@@ -7711,7 +7711,7 @@ cols[3].metric(
 )
 
 st.info(
-    "The operational HSI uses temperature, salinity and "
+    "The primary HSI uses temperature, salinity and "
     "surface dissolved oxygen from the literature-based "
     "reference ranges. The experimental ML layer is displayed "
     "separately and does not alter the HSI forecast."
@@ -7997,7 +7997,7 @@ hsi_cols[3].metric(
 )
 
 st.caption(
-    "The operational HSI is the equal-weight mean of the "
+    "The primary HSI is the equal-weight mean of the "
     "temperature, salinity and surface dissolved-oxygen scores. "
     "A value outside the central literature reference envelope "
     "does not automatically force the whole HSI to zero because "
@@ -8025,7 +8025,7 @@ Each component ranges from **0 to 1**.
 - Bathymetry, coast distance, oxycline and season are not given
   hand-built HSI weights.
 
-This breakdown explains the operational HSI only. It does not make
+This breakdown explains the primary HSI only. It does not make
 the HSI a probability that anchoveta are present.
         """
     )
@@ -9685,8 +9685,8 @@ else:
 
 st.info(
     "📤 **Send Now** provides manual/demo delivery. "
-    "🔔 **Daily Advisory Subscription** is the operational "
-    "implementation. Active subscribers are processed by the "
+    "🔔 **Daily Advisory Subscription** enables scheduled prototype "
+    "delivery. Active subscribers are processed by the "
     "scheduled 4:00 AM Peru backend."
 )
 
@@ -9841,7 +9841,7 @@ else:
         "**SECONDARY — Experimental Conditional ML**\n\n"
         "The experimental-model manifest is not available "
         "in this deployment. The primary HSI remains fully "
-        "operational."
+        "available."
     )
 
 with st.expander(
