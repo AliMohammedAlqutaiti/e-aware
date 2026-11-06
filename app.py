@@ -9128,13 +9128,6 @@ if not gmail_configured:
         "Email delivery is unavailable in this local environment. The deployed backend is configured separately."
     )
 
-    with st.expander("Developer email configuration", expanded=False):
-        st.caption(
-                "GMAIL_SENDER: "
-                f"{'✅' if 'GMAIL_SENDER' in st.secrets else '❌'} | "
-                "GMAIL_APP_PASSWORD: "
-                f"{'✅' if 'GMAIL_APP_PASSWORD' in st.secrets else '❌'}"
-            )
 
 else:
 
@@ -9300,6 +9293,101 @@ else:
 # DAILY ADVISORY SUBSCRIPTION — OPERATIONAL MODE
 # ============================================================
 
+
+def send_subscription_confirmation_email(recipient_email):
+    """Send an immediate confirmation after a successful subscription."""
+    from email.message import EmailMessage
+    import smtplib
+
+    sender = str(st.secrets.get("GMAIL_SENDER", "")).strip()
+    app_password = str(st.secrets.get("GMAIL_APP_PASSWORD", "")).strip()
+
+    if not sender or not app_password:
+        raise RuntimeError(
+            "Gmail credentials are not configured."
+        )
+
+    message = EmailMessage()
+
+    message["From"] = sender
+    message["To"] = recipient_email
+    message["Subject"] = "E-AWARE Daily Advisory Subscription Confirmed"
+
+    message.set_content(
+        """E-AWARE Daily Advisory Subscription Confirmed
+
+Your email address has been successfully registered for the E-AWARE daily fisheries advisory.
+
+You will receive the latest E-AWARE advisory automatically each day at approximately 4:00 AM Peru time.
+
+The advisory provides decision-support information including:
+- Anchoveta habitat suitability
+- Environmental conditions
+- Predicted suitable-habitat shift
+- Coastal distance information
+- Ecological guidance
+
+Please check official fishing restrictions and safety information before departure.
+
+E-AWARE
+El Niño Adaptive Fisheries Intelligence
+
+Decision-support research prototype.
+"""
+    )
+
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as smtp:
+        smtp.ehlo()
+        smtp.starttls()
+        smtp.ehlo()
+        smtp.login(sender, app_password)
+        smtp.send_message(message)
+
+
+
+def send_unsubscription_confirmation_email(recipient_email):
+    """Send an immediate confirmation after a successful unsubscribe."""
+    from email.message import EmailMessage
+    import smtplib
+
+    sender = str(st.secrets.get("GMAIL_SENDER", "")).strip()
+    app_password = str(st.secrets.get("GMAIL_APP_PASSWORD", "")).strip()
+
+    if not sender or not app_password:
+        raise RuntimeError(
+            "Gmail credentials are not configured."
+        )
+
+    message = EmailMessage()
+
+    message["From"] = sender
+    message["To"] = recipient_email
+    message["Subject"] = "E-AWARE Daily Advisory Unsubscription Confirmed"
+
+    message.set_content(
+        """E-AWARE Daily Advisory Unsubscription Confirmed
+
+Your email address has been successfully removed from the active E-AWARE daily advisory subscription list.
+
+You will no longer receive the automatic 4:00 AM Peru-time daily advisory.
+
+You may subscribe again at any time through the E-AWARE dashboard.
+
+E-AWARE
+El Niño Adaptive Fisheries Intelligence
+
+Decision-support research prototype.
+"""
+    )
+
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as smtp:
+        smtp.ehlo()
+        smtp.starttls()
+        smtp.ehlo()
+        smtp.login(sender, app_password)
+        smtp.send_message(message)
+
+
 st.subheader(
     "🔔 Daily Advisory Subscription"
 )
@@ -9330,13 +9418,6 @@ if not supabase_configured:
         "Daily subscription management is unavailable in this local environment. The deployed backend is configured separately."
     )
 
-    with st.expander("Developer subscription configuration", expanded=False):
-        st.caption(
-                "SUPABASE_URL: "
-                f"{'✅' if 'SUPABASE_URL' in st.secrets else '❌'} | "
-                "SUPABASE_SECRET_KEY: "
-                f"{'✅' if 'SUPABASE_SECRET_KEY' in st.secrets else '❌'}"
-            )
 
 else:
 
@@ -9449,6 +9530,23 @@ else:
                     "daily E-AWARE advisory."
                 )
 
+                try:
+                    send_subscription_confirmation_email(
+                        clean_email
+                    )
+
+                    st.success(
+                        "📧 A subscription confirmation email "
+                        "has been sent."
+                    )
+
+                except Exception as email_exc:
+                    st.warning(
+                        "The subscription was saved successfully, "
+                        "but the confirmation email could not be sent. "
+                        f"{type(email_exc).__name__}: {email_exc}"
+                    )
+
         except Exception as exc:
 
             st.error(
@@ -9528,6 +9626,23 @@ else:
                     st.success(
                         "✅ Unsubscribed successfully."
                     )
+
+                    try:
+                        send_unsubscription_confirmation_email(
+                            clean_email
+                        )
+
+                        st.success(
+                            "📧 An unsubscription confirmation email "
+                            "has been sent."
+                        )
+
+                    except Exception as email_exc:
+                        st.warning(
+                            "The subscription was removed successfully, "
+                            "but the confirmation email could not be sent. "
+                            f"{type(email_exc).__name__}: {email_exc}"
+                        )
 
                 else:
 
