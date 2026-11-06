@@ -20,7 +20,7 @@ st.set_page_config(page_title="E-AWARE", page_icon="🐟", layout="wide")
 st.title("🐟 E-AWARE")
 st.caption(
     "El Niño Adaptive Fisheries Intelligence — "
-    "Operational HSI + Experimental ML"
+    "Primary Literature-Based HSI + Experimental ML"
 )
 
 st.info(
@@ -6720,7 +6720,7 @@ if (
 - It is **not** a probability that anchoveta are present at a coordinate.
 - Year-held-out matched concordance was **0.598** and Top-1 performance was **0.324**.
 - Robust spatial transfer could **not** be established because the valid historical observations were strongly geographically concentrated.
-- The literature-based **HSI remains the primary operational model**.
+- The literature-based **HSI remains the primary habitat model**.
 """
         )
 
@@ -7987,7 +7987,7 @@ with st.expander(
 ):
     st.markdown(
         """
-**Operational HSI formula**
+**Primary HSI formula**
 
 `HSI = (Temperature Score + Salinity Score + Oxygen Score) / 3`
 
@@ -8215,7 +8215,7 @@ st.dataframe(
 st.divider()
 
 st.header(
-    "🧬 V2 — Anchoveta Observation Dataset"
+    "🧬 Anchoveta Observation Dataset"
 )
 
 historical_raw, historical_source = (
@@ -8292,7 +8292,7 @@ else:
         )
 
         st.subheader(
-            "V2 Step 1 — Ingestion & Validation"
+            "Observation Ingestion & Validation"
         )
 
         cols = st.columns(
@@ -8374,7 +8374,7 @@ else:
             )
 
         st.subheader(
-            "V2 Step 3A — Observation Data Quality Control"
+            "Observation Data Quality Control"
         )
 
         observation_qc = observation_qc_audit(
@@ -8511,7 +8511,7 @@ else:
             )
 
         st.subheader(
-            "V2 Step 2 — Historical Environmental Matching"
+            "Historical Environmental Matching"
         )
 
         st.write(
@@ -8798,7 +8798,7 @@ else:
                     )
 
                 st.subheader(
-                    "V2 Step 3B — Matched Training-Table Quality Control"
+                    "Matched Training-Table Quality Control"
                 )
 
                 matched_qc = matched_qc_audit(
@@ -9393,8 +9393,8 @@ st.subheader(
 )
 
 st.caption(
-    "Operational mode: subscribe once to receive the E-AWARE "
-    "daily advisory automatically. The operational backend is "
+    "Scheduled delivery: subscribe once to receive the E-AWARE "
+    "daily advisory automatically. The prototype backend is "
     "scheduled for 4:00 AM Peru time."
 )
 
@@ -9660,7 +9660,7 @@ else:
 
 
 st.info(
-    "📤 **Send Now** above is the presentation/demo option. "
+    "📤 **Send Now** provides manual/demo delivery. "
     "🔔 **Daily Advisory Subscription** is the operational "
     "implementation. Active subscribers are processed by the "
     "scheduled 4:00 AM Peru backend."
@@ -9844,8 +9844,8 @@ with st.expander(
 st.divider()
 
 st.caption(
-    "E-AWARE V2 | "
-    "Literature HSI = primary operational model | "
+    "E-AWARE | "
+    "Literature HSI = primary habitat model | "
     "Conditional ML = experimental secondary layer | "
     "Decision-support research prototype"
 )
