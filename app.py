@@ -3252,24 +3252,48 @@ def habitat_centroid(
     if dataframe.empty:
         return None
 
+    valid_hsi = dataframe[
+        pd.to_numeric(
+            dataframe["hsi"],
+            errors="coerce"
+        ).notna()
+    ].copy()
+
+    if (
+        valid_hsi.empty
+        or
+        float(valid_hsi["hsi"].max()) <= 0
+    ):
+        return None
+
     threshold = float(
-        dataframe[
+        valid_hsi[
             "hsi"
         ].quantile(
             0.75
         )
     )
 
-    best_area = dataframe[
-        dataframe[
-            "hsi"
-        ]
-        >=
-        threshold
+    best_area = valid_hsi[
+        (
+            valid_hsi[
+                "hsi"
+            ]
+            >=
+            threshold
+        )
+        &
+        (
+            valid_hsi[
+                "hsi"
+            ]
+            >
+            0
+        )
     ].copy()
 
     if best_area.empty:
-        best_area = dataframe.nlargest(
+        best_area = valid_hsi.nlargest(
             1,
             "hsi"
         ).copy()
