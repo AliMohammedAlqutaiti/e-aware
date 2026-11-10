@@ -12,6 +12,7 @@ import pandas as pd
 import pydeck as pdk
 import streamlit as st
 import xarray as xr
+import joblib
 
 # ============================================================
 # PAGE / STUDY AREA
@@ -20,16 +21,17 @@ st.set_page_config(page_title="E-AWARE", page_icon="🐟", layout="wide")
 st.title("🐟 E-AWARE")
 st.caption(
     "El Niño Adaptive Fisheries Intelligence — "
-    "Primary Literature-Based HSI + Experimental ML"
+    "Validated ML with Literature HSI safety fallback"
 )
 
 st.info(
-    "E-AWARE uses the literature-based Habitat Suitability Index (HSI) "
-    "as its PRIMARY habitat model. "
-    "A coast-matched conditional logistic model is retained as an "
-    "EXPERIMENTAL secondary research layer. "
-    "The experimental ML score is relative habitat suitability, "
-    "not probability of fish presence."
+    "E-AWARE uses the validated Phase 2 ML Habitat Suitability Index "
+    "as its primary operational ranking model when live environmental "
+    "conditions remain inside the model's validated historical domain. "
+    "During out-of-domain conditions, such as extreme El Niño events, "
+    "E-AWARE automatically falls back to the Literature Reference HSI. "
+    "HSI values describe relative habitat suitability, not probability "
+    "of fish presence."
 )
 
 MIN_LON, MAX_LON = -82.15, -81.20
@@ -67,9 +69,33 @@ OXYCLINE_THRESHOLD_ML_L = 1.0
 OBSERVATION_REPO_PATH = Path("data/anchoveta_observations.csv")
 LEGACY_OBSERVATION_REPO_PATH = Path("data/imarpe_anchoveta_observations.csv")
 
-EXPERIMENTAL_MODEL_MANIFEST = Path(
-    "model_artifacts/eaware_experimental_ml.json"
+
+
+# ============================================================
+# VALIDATED PHASE 2 PRODUCTION MODEL
+# ============================================================
+
+VALIDATED_ML_MODEL_PATH = Path(
+    "models/eaware_phase2_logistic.joblib"
 )
+
+VALIDATED_ML_REFERENCE_PATH = Path(
+    "models/eaware_phase2_reference_scores.npy"
+)
+
+VALIDATED_ML_METADATA_PATH = Path(
+    "models/eaware_phase2_model_metadata.json"
+)
+
+# The production model was trained using the Copernicus
+# multiyear monthly climatology, not the separate live
+# forecast-anomaly product.
+ML_SST_CLIMATOLOGY_DATASET = (
+    "cmems_mod_glo_phy_my_0.083deg-climatology_P1M-m"
+)
+
+OXYGEN_MMOL_M3_TO_MG_L = 0.032
+
 
 # Engineering QC warning thresholds for nearest-grid matching.
 # These are diagnostic thresholds, not biological habitat thresholds.
@@ -80,21 +106,84 @@ QC_MAX_BGC_MATCH_KM = 25.0
 # GENERAL HELPERS
 # ============================================================
 
-@st.cache_data
-def load_experimental_model_manifest():
 
-    if not EXPERIMENTAL_MODEL_MANIFEST.exists():
-        return None
+
+
+@st.cache_resource
+def load_validated_ml_artifacts():
+    """
+    Load the frozen validated Phase 2 production model,
+    historical reference-score distribution and metadata.
+    """
+
+    required = [
+        VALIDATED_ML_MODEL_PATH,
+        VALIDATED_ML_REFERENCE_PATH,
+        VALIDATED_ML_METADATA_PATH,
+    ]
+
+    missing = [
+        str(path)
+        for path in required
+        if not path.exists()
+    ]
+
+    if missing:
+        return {
+            "available": False,
+            "reason": (
+                "Missing validated ML artifact(s): "
+                + ", ".join(missing)
+            ),
+        }
 
     try:
-        return json.loads(
-            EXPERIMENTAL_MODEL_MANIFEST.read_text(
+
+        model = joblib.load(
+            VALIDATED_ML_MODEL_PATH
+        )
+
+        reference_scores = np.load(
+            VALIDATED_ML_REFERENCE_PATH,
+            allow_pickle=False,
+        )
+
+        metadata = json.loads(
+            VALIDATED_ML_METADATA_PATH.read_text(
                 encoding="utf-8"
             )
         )
 
-    except Exception:
-        return None
+        reference_scores = np.sort(
+            np.asarray(
+                reference_scores,
+                dtype=float,
+            )
+        )
+
+        if len(reference_scores) == 0:
+            raise ValueError(
+                "Historical reference-score array is empty."
+            )
+
+        return {
+            "available": True,
+            "reason": None,
+            "model": model,
+            "reference_scores": reference_scores,
+            "metadata": metadata,
+        }
+
+    except Exception as exc:
+
+        return {
+            "available": False,
+            "reason": (
+                "Validated ML artifacts could not be loaded: "
+                f"{exc}"
+            ),
+        }
+
 
 
 def get_credentials():
@@ -368,6 +457,39 @@ def load_sst_anomaly(
         start_date,
         end_date,
         False
+    )
+
+
+@st.cache_data(
+    ttl=86400,
+    show_spinner=False
+)
+def load_ml_sst_climatology(
+    month
+):
+    """
+    Load the month-of-year SST climatology used to define
+    the production model's SST anomaly.
+
+    Copernicus represents the 12 monthly climatology fields
+    using the months of 2004.
+    """
+
+    month = int(
+        month
+    )
+
+    climatology_date = (
+        f"2004-{month:02d}-01"
+    )
+
+    return download_live_surface(
+        ML_SST_CLIMATOLOGY_DATASET,
+        "thetao",
+        "ml_sst_climatology_c",
+        climatology_date,
+        climatology_date,
+        True,
     )
 
 
@@ -2284,18 +2406,31 @@ def calculate_hsi(
     return df
 
 
-def score_experimental_ml_live(
+
+def score_validated_ml_live(
     dataframe,
-    manifest
+    current_date,
+    artifacts,
 ):
     """
-    Apply the frozen experimental conditional-logistic model
-    to the live environmental grid.
+    Apply the validated Phase 2 production model.
 
-    IMPORTANT:
-    - Output is a relative ranking score.
-    - It is NOT probability of anchoveta presence.
-    - It does NOT replace or modify the operational HSI.
+    The model may calculate a raw diagnostic score outside
+    its historical training domain, but operational ML HSI
+    is ONLY released for cells inside the complete validated
+    training envelope.
+
+    validated_ml_reference_percentile:
+        Historical score percentile. Diagnostic everywhere
+        predictors exist, including extrapolation.
+
+    validated_ml_hsi:
+        Operational ML HSI. Only populated inside the
+        validated training envelope.
+
+    validated_ml_in_training_envelope:
+        True only when ALL seven predictors lie within their
+        observed Phase 2 training min/max range.
     """
 
     df = dataframe.copy()
@@ -2303,148 +2438,433 @@ def score_experimental_ml_live(
     diagnostics = {
         "available": False,
         "reason": None,
-        "cells_scored": 0,
-        "cells_inside_training_envelope": 0,
-        "inside_training_envelope_pct": np.nan,
-        "feature_envelope": [],
+
+        "cells_total":
+            int(len(df)),
+
+        "cells_scored":
+            0,
+
+        "predictor_complete_pct":
+            0.0,
+
+        "climatology_match_pct":
+            0.0,
+
+        "cells_inside_training_envelope":
+            0,
+
+        "inside_training_envelope_pct":
+            0.0,
+
+        "out_of_domain_features":
+            [],
+
+        "operational_status":
+            "UNAVAILABLE",
+
+        "reference_score_count":
+            0,
+
+        "diagnostic_percentile_min":
+            np.nan,
+
+        "diagnostic_percentile_median":
+            np.nan,
+
+        "diagnostic_percentile_max":
+            np.nan,
+
+        "validated_hsi_min":
+            np.nan,
+
+        "validated_hsi_median":
+            np.nan,
+
+        "validated_hsi_max":
+            np.nan,
     }
 
+
+    # ------------------------------------------------------
+    # OUTPUT COLUMNS
+    # ------------------------------------------------------
+
     df[
-        "experimental_ml_score"
+        "validated_ml_raw_score"
     ] = np.nan
 
     df[
-        "experimental_ml_relative_rank"
+        "validated_ml_reference_percentile"
     ] = np.nan
 
     df[
-        "experimental_ml_outside_training_count"
+        "validated_ml_hsi"
     ] = np.nan
 
     df[
-        "experimental_ml_in_training_envelope"
+        "validated_ml_class"
+    ] = None
+
+    df[
+        "validated_ml_outside_training_count"
+    ] = np.nan
+
+    df[
+        "validated_ml_outside_features"
+    ] = ""
+
+    df[
+        "validated_ml_in_training_envelope"
     ] = False
 
-    if not manifest:
+    df[
+        "ml_sst_climatology_c"
+    ] = np.nan
+
+    df[
+        "ml_sst_anomaly_c"
+    ] = np.nan
+
+
+    # ------------------------------------------------------
+    # ARTIFACT CHECK
+    # ------------------------------------------------------
+
+    if (
+        not artifacts
+        or
+        not artifacts.get(
+            "available",
+            False,
+        )
+    ):
 
         diagnostics[
             "reason"
         ] = (
-            "Experimental model manifest unavailable."
+            artifacts.get(
+                "reason",
+                "Validated ML artifacts unavailable.",
+            )
+            if artifacts
+            else
+            "Validated ML artifacts unavailable."
         )
 
-        return df, diagnostics
+        return (
+            df,
+            diagnostics,
+        )
 
-    required_live = [
-        "temperature",
-        "salinity",
-        "oxygen_ml_l",
-        "water_depth_m",
-        "oxycline_depth_m",
+
+    metadata = artifacts[
+        "metadata"
     ]
 
-    # oxycline_depth_m is allowed to contain NaN because
-    # NaN means that the 1 mL/L threshold was not reached
-    # before the local seabed.
-    required_nonnullable = [
-        "temperature",
-        "salinity",
-        "oxygen_ml_l",
-        "water_depth_m",
-    ]
 
-    missing_columns = [
-        c
-        for c in required_live
-        if c not in df.columns
-    ]
+    training_envelope = (
+        metadata.get(
+            "training_envelope",
+            {}
+        )
+    )
 
-    if missing_columns:
+
+    if not training_envelope:
 
         diagnostics[
             "reason"
         ] = (
-            "Missing live predictor columns: "
-            +
-            ", ".join(
-                missing_columns
+            "Production model metadata does not contain "
+            "the validated training envelope."
+        )
+
+        return (
+            df,
+            diagnostics,
+        )
+
+
+    # ------------------------------------------------------
+    # LOAD MATCHED MONTHLY SST CLIMATOLOGY
+    # ------------------------------------------------------
+
+    try:
+
+        climatology = (
+            load_ml_sst_climatology(
+                current_date.month
             )
         )
 
-        return df, diagnostics
+    except Exception as exc:
 
-    # --------------------------------------------------------
-    # Reproduce the physical oxycline encoding used in
-    # final experimental model training.
-    # --------------------------------------------------------
+        diagnostics[
+            "reason"
+        ] = (
+            "Could not load matched SST climatology: "
+            f"{exc}"
+        )
 
-    df[
-        "oxycline_reached_before_seabed"
-    ] = (
+        return (
+            df,
+            diagnostics,
+        )
+
+
+    if "lat_key" not in df.columns:
+
         df[
-            "oxycline_depth_m"
+            "lat_key"
+        ] = (
+            pd.to_numeric(
+                df["lat"],
+                errors="coerce",
+            )
+            .round(3)
+        )
+
+
+    if "lon_key" not in df.columns:
+
+        df[
+            "lon_key"
+        ] = (
+            pd.to_numeric(
+                df["lon"],
+                errors="coerce",
+            )
+            .round(3)
+        )
+
+
+    climatology = (
+        climatology[
+            [
+                "lat_key",
+                "lon_key",
+                "ml_sst_climatology_c",
+            ]
+        ]
+        .drop_duplicates(
+            subset=[
+                "lat_key",
+                "lon_key",
+            ]
+        )
+    )
+
+
+    df = df.drop(
+        columns=[
+            "ml_sst_climatology_c"
+        ],
+        errors="ignore",
+    )
+
+
+    df = df.merge(
+        climatology,
+        on=[
+            "lat_key",
+            "lon_key",
+        ],
+        how="left",
+    )
+
+
+    diagnostics[
+        "climatology_match_pct"
+    ] = float(
+        100.0
+        *
+        df[
+            "ml_sst_climatology_c"
         ]
         .notna()
-        .astype(int)
+        .mean()
+    )
+
+
+    # ------------------------------------------------------
+    # EXACT PRODUCTION FEATURE ENGINEERING
+    # ------------------------------------------------------
+
+    df[
+        "ml_sst_anomaly_c"
+    ] = (
+        pd.to_numeric(
+            df[
+                "temperature"
+            ],
+            errors="coerce",
+        )
+        -
+        pd.to_numeric(
+            df[
+                "ml_sst_climatology_c"
+            ],
+            errors="coerce",
+        )
+    )
+
+
+    df[
+        "ml_oxygen_mg_l"
+    ] = (
+        pd.to_numeric(
+            df[
+                "oxygen_ml_l"
+            ],
+            errors="coerce",
+        )
+        *
+        (
+            OXYGEN_MMOL_M3_TO_MG_L
+            /
+            OXYGEN_MMOL_M3_TO_ML_L
+        )
+    )
+
+
+    water_depth = pd.to_numeric(
+        df[
+            "water_depth_m"
+        ],
+        errors="coerce",
+    )
+
+
+    df[
+        "ml_log_bottom_depth"
+    ] = np.where(
+        water_depth >= 0,
+        np.log1p(
+            water_depth
+        ),
+        np.nan,
+    )
+
+
+    month = int(
+        current_date.month
+    )
+
+
+    angle = (
+        2.0
+        *
+        np.pi
+        *
+        (
+            month - 1
+        )
+        /
+        12.0
+    )
+
+
+    df[
+        "ml_month_sin"
+    ] = np.sin(
+        angle
     )
 
     df[
-        "oxycline_depth_when_reached_m"
-    ] = np.where(
-        df[
-            "oxycline_reached_before_seabed"
-        ] == 1,
-        df[
-            "oxycline_depth_m"
-        ],
-        0.0,
+        "ml_month_cos"
+    ] = np.cos(
+        angle
     )
 
-    live_feature_map = {
-        "historical_sst_c":
-            "temperature",
 
-        "historical_salinity_psu":
-            "salinity",
+    feature_frame = pd.DataFrame(
+        {
+            "deploy_sst_c":
+                pd.to_numeric(
+                    df["temperature"],
+                    errors="coerce",
+                ),
 
-        "historical_surface_o2_ml_l":
-            "oxygen_ml_l",
+            "deploy_sss_psu":
+                pd.to_numeric(
+                    df["salinity"],
+                    errors="coerce",
+                ),
 
-        "oxycline_reached_before_seabed":
-            "oxycline_reached_before_seabed",
+            "deploy_oxygen_mg_l":
+                pd.to_numeric(
+                    df["ml_oxygen_mg_l"],
+                    errors="coerce",
+                ),
 
-        "oxycline_depth_when_reached_m":
-            "oxycline_depth_when_reached_m",
-    }
+            "deploy_log_bottom_depth":
+                pd.to_numeric(
+                    df["ml_log_bottom_depth"],
+                    errors="coerce",
+                ),
 
-    features = manifest.get(
+            "sst_anomaly_c":
+                pd.to_numeric(
+                    df["ml_sst_anomaly_c"],
+                    errors="coerce",
+                ),
+
+            "month_sin":
+                pd.to_numeric(
+                    df["ml_month_sin"],
+                    errors="coerce",
+                ),
+
+            "month_cos":
+                pd.to_numeric(
+                    df["ml_month_cos"],
+                    errors="coerce",
+                ),
+        },
+        index=df.index,
+    )
+
+
+    expected_features = [
+        "deploy_sst_c",
+        "deploy_sss_psu",
+        "deploy_oxygen_mg_l",
+        "deploy_log_bottom_depth",
+        "sst_anomaly_c",
+        "month_sin",
+        "month_cos",
+    ]
+
+
+    features = metadata.get(
         "features",
         []
     )
 
-    unresolved = [
-        feature
-        for feature in features
-        if feature not in live_feature_map
-    ]
 
-    if unresolved:
+    if features != expected_features:
 
         diagnostics[
             "reason"
         ] = (
-            "Unsupported experimental feature(s): "
-            +
-            ", ".join(
-                unresolved
-            )
+            "Production metadata feature order does not "
+            "match the validated live scorer."
         )
 
-        return df, diagnostics
+        return (
+            df,
+            diagnostics,
+        )
+
+
+    # ------------------------------------------------------
+    # PREDICTOR COMPLETENESS
+    # ------------------------------------------------------
 
     valid_mask = (
-        df[
-            required_nonnullable
+        feature_frame[
+            features
         ]
         .notna()
         .all(
@@ -2452,93 +2872,43 @@ def score_experimental_ml_live(
         )
     )
 
+
+    diagnostics[
+        "cells_scored"
+    ] = int(
+        valid_mask.sum()
+    )
+
+
+    if len(df) > 0:
+
+        diagnostics[
+            "predictor_complete_pct"
+        ] = float(
+            100.0
+            *
+            valid_mask.mean()
+        )
+
+
     if not valid_mask.any():
 
         diagnostics[
             "reason"
         ] = (
-            "No live grid cells contain all "
-            "experimental predictors."
+            "No live cells contain all seven validated "
+            "production predictors."
         )
 
-        return df, diagnostics
-
-    live_columns = [
-        live_feature_map[
-            feature
-        ]
-        for feature in features
-    ]
-
-    X = (
-        df.loc[
-            valid_mask,
-            live_columns
-        ]
-        .astype(float)
-        .to_numpy()
-    )
-
-    mean = np.asarray(
-        manifest.get(
-            "scaler_mean",
-            []
-        ),
-        dtype=float,
-    )
-
-    scale = np.asarray(
-        manifest.get(
-            "scaler_scale",
-            []
-        ),
-        dtype=float,
-    )
-
-    coefficients = np.asarray(
-        manifest.get(
-            "coefficients",
-            []
-        ),
-        dtype=float,
-    )
-
-    if not (
-        len(features)
-        ==
-        len(mean)
-        ==
-        len(scale)
-        ==
-        len(coefficients)
-    ):
-
-        diagnostics[
-            "reason"
-        ] = (
-            "Experimental model manifest dimensions "
-            "are inconsistent."
+        return (
+            df,
+            diagnostics,
         )
 
-        return df, diagnostics
 
-    safe_scale = np.where(
-        scale == 0,
-        1.0,
-        scale,
-    )
-
-    standardized = (
-        X
-        -
-        mean
-    ) / safe_scale
-
-    score = (
-        standardized
-        @
-        coefficients
-    )
+    # ------------------------------------------------------
+    # TRAINING-DOMAIN CHECK
+    # ------------------------------------------------------
 
     valid_index = (
         df.index[
@@ -2546,139 +2916,106 @@ def score_experimental_ml_live(
         ]
     )
 
-    df.loc[
-        valid_index,
-        "experimental_ml_score",
-    ] = score
-
-    # Percentile ranking ONLY within the current live grid.
-    # 1.0 = highest experimental relative score today.
-    df.loc[
-        valid_index,
-        "experimental_ml_relative_rank",
-    ] = (
-        pd.Series(
-            score,
-            index=valid_index,
-        )
-        .rank(
-            method="average",
-            pct=True,
-        )
-    )
-
-    # --------------------------------------------------------
-    # Training-envelope check
-    # --------------------------------------------------------
-
-    training_ranges = (
-        manifest.get(
-            "training_ranges",
-            {}
-        )
-    )
 
     outside_count = np.zeros(
         len(valid_index),
         dtype=int,
     )
 
-    feature_envelope = []
 
-    for position, feature in enumerate(
-        features
-    ):
+    outside_names = [
+        []
+        for _ in range(
+            len(valid_index)
+        )
+    ]
 
-        limits = training_ranges.get(
+
+    aggregate_outside = {}
+
+
+    live_values = (
+        feature_frame.loc[
+            valid_index,
+            features,
+        ]
+    )
+
+
+    for feature in features:
+
+        limits = training_envelope.get(
             feature
         )
 
+
         if not limits:
-            continue
 
-        minimum = limits.get(
-            "min"
-        )
-
-        maximum = limits.get(
-            "max"
-        )
-
-        if (
-            minimum is None
-            or
-            maximum is None
-        ):
-            continue
-
-        values = X[
-            :,
-            position
-        ]
-
-        outside_mask = (
-            (
-                values
-                <
-                float(
-                    minimum
-                )
+            diagnostics[
+                "reason"
+            ] = (
+                "Training envelope missing feature: "
+                f"{feature}"
             )
+
+            return (
+                df,
+                diagnostics,
+            )
+
+
+        lower = float(
+            limits[
+                "min"
+            ]
+        )
+
+        upper = float(
+            limits[
+                "max"
+            ]
+        )
+
+
+        values = (
+            live_values[
+                feature
+            ]
+            .to_numpy(
+                dtype=float
+            )
+        )
+
+
+        outside = (
+            (values < lower)
             |
-            (
-                values
-                >
-                float(
-                    maximum
-                )
-            )
+            (values > upper)
         )
+
+
+        aggregate_outside[
+            feature
+        ] = int(
+            outside.sum()
+        )
+
 
         outside_count += (
-            outside_mask.astype(int)
+            outside.astype(int)
         )
 
-        feature_envelope.append(
-            {
-                "Predictor":
-                    feature,
 
-                "Training Min":
-                    float(minimum),
+        for position in np.where(
+            outside
+        )[0]:
 
-                "Training Max":
-                    float(maximum),
+            outside_names[
+                position
+            ].append(
+                feature
+            )
 
-                "Live Min":
-                    float(
-                        np.nanmin(
-                            values
-                        )
-                    ),
-
-                "Live Max":
-                    float(
-                        np.nanmax(
-                            values
-                        )
-                    ),
-
-                "Cells Outside":
-                    int(
-                        outside_mask.sum()
-                    ),
-
-                "Cells Scored":
-                    int(
-                        len(values)
-                    ),
-            }
-        )
-
-    df.loc[
-        valid_index,
-        "experimental_ml_outside_training_count",
-    ] = outside_count
 
     inside = (
         outside_count
@@ -2686,28 +3023,34 @@ def score_experimental_ml_live(
         0
     )
 
+
     df.loc[
         valid_index,
-        "experimental_ml_in_training_envelope",
+        "validated_ml_outside_training_count",
+    ] = outside_count
+
+
+    df.loc[
+        valid_index,
+        "validated_ml_outside_features",
+    ] = [
+        ", ".join(names)
+        for names in outside_names
+    ]
+
+
+    df.loc[
+        valid_index,
+        "validated_ml_in_training_envelope",
     ] = inside
 
-    diagnostics[
-        "available"
-    ] = True
-
-    diagnostics[
-        "cells_scored"
-    ] = int(
-        len(
-            valid_index
-        )
-    )
 
     diagnostics[
         "cells_inside_training_envelope"
     ] = int(
         inside.sum()
     )
+
 
     diagnostics[
         "inside_training_envelope_pct"
@@ -2717,34 +3060,237 @@ def score_experimental_ml_live(
         inside.mean()
     )
 
+
     diagnostics[
-        "feature_envelope"
-    ] = feature_envelope
+        "out_of_domain_features"
+    ] = [
+        {
+            "feature":
+                feature,
 
-    return df, diagnostics
+            "cells_outside":
+                count,
+
+            "cells_scored":
+                len(valid_index),
+        }
+
+        for feature, count
+        in aggregate_outside.items()
+
+        if count > 0
+    ]
 
 
-def experimental_rank_agreement_label(
-    correlation
-):
-    """
-    Dashboard diagnostic only.
-    These are NOT biological thresholds and are NOT
-    model-validation categories.
-    """
+    # ------------------------------------------------------
+    # MODEL SCORE
+    # ------------------------------------------------------
 
-    if pd.isna(
-        correlation
-    ):
-        return "Unavailable"
+    model = artifacts[
+        "model"
+    ]
 
-    if correlation >= 0.60:
-        return "High"
 
-    if correlation >= 0.30:
-        return "Moderate"
+    reference_scores = np.asarray(
+        artifacts[
+            "reference_scores"
+        ],
+        dtype=float,
+    )
 
-    return "Low"
+
+    X = (
+        live_values[
+            features
+        ]
+        .to_numpy(
+            dtype=float
+        )
+    )
+
+
+    raw_score = (
+        model.predict_proba(
+            X
+        )[:, 1]
+    )
+
+
+    diagnostic_percentile = (
+        np.searchsorted(
+            reference_scores,
+            raw_score,
+            side="right",
+        )
+        /
+        len(
+            reference_scores
+        )
+    )
+
+
+    df.loc[
+        valid_index,
+        "validated_ml_raw_score",
+    ] = raw_score
+
+
+    df.loc[
+        valid_index,
+        "validated_ml_reference_percentile",
+    ] = diagnostic_percentile
+
+
+    diagnostics[
+        "reference_score_count"
+    ] = int(
+        len(
+            reference_scores
+        )
+    )
+
+
+    diagnostics[
+        "diagnostic_percentile_min"
+    ] = float(
+        np.nanmin(
+            diagnostic_percentile
+        )
+    )
+
+
+    diagnostics[
+        "diagnostic_percentile_median"
+    ] = float(
+        np.nanmedian(
+            diagnostic_percentile
+        )
+    )
+
+
+    diagnostics[
+        "diagnostic_percentile_max"
+    ] = float(
+        np.nanmax(
+            diagnostic_percentile
+        )
+    )
+
+
+    # ------------------------------------------------------
+    # RELEASE OPERATIONAL ML HSI ONLY INSIDE VALIDATED DOMAIN
+    # ------------------------------------------------------
+
+    inside_indices = (
+        valid_index[
+            inside
+        ]
+    )
+
+
+    inside_hsi = (
+        diagnostic_percentile[
+            inside
+        ]
+    )
+
+
+    if len(
+        inside_indices
+    ) > 0:
+
+        df.loc[
+            inside_indices,
+            "validated_ml_hsi",
+        ] = inside_hsi
+
+
+        df.loc[
+            inside_indices,
+            "validated_ml_class",
+        ] = [
+            hsi_class(
+                float(value)
+            )
+
+            for value
+            in inside_hsi
+        ]
+
+
+        diagnostics[
+            "validated_hsi_min"
+        ] = float(
+            np.nanmin(
+                inside_hsi
+            )
+        )
+
+
+        diagnostics[
+            "validated_hsi_median"
+        ] = float(
+            np.nanmedian(
+                inside_hsi
+            )
+        )
+
+
+        diagnostics[
+            "validated_hsi_max"
+        ] = float(
+            np.nanmax(
+                inside_hsi
+            )
+        )
+
+
+    # ------------------------------------------------------
+    # DATE-LEVEL OPERATIONAL STATUS
+    #
+    # ML becomes primary only when the COMPLETE scored grid
+    # lies inside the validated training domain.
+    # Otherwise literature HSI remains primary for the date.
+    # ------------------------------------------------------
+
+    if inside.all():
+
+        diagnostics[
+            "operational_status"
+        ] = (
+            "VALIDATED_ML_PRIMARY_ELIGIBLE"
+        )
+
+    elif inside.any():
+
+        diagnostics[
+            "operational_status"
+        ] = (
+            "MIXED_DOMAIN_LITERATURE_FALLBACK"
+        )
+
+    else:
+
+        diagnostics[
+            "operational_status"
+        ] = (
+            "OUT_OF_DOMAIN_LITERATURE_FALLBACK"
+        )
+
+
+    diagnostics[
+        "available"
+    ] = True
+
+
+    return (
+        df,
+        diagnostics,
+    )
+
+
+
+
 
 
 def assess_fisheries_protection(
@@ -2953,26 +3499,80 @@ def assess_primary_hsi_confidence(
     available_dates
 ):
     """
-    Engineering confidence diagnostic for the PRIMARY
-    literature-based HSI.
+    Engineering confidence diagnostic for whichever HSI model
+    is operational on the selected date.
 
-    This is NOT probability of fish presence.
+    This is NOT probability of anchoveta presence.
 
-    Confidence considers:
-    1. completeness of the three HSI predictors;
-    2. freshness of the live environmental date;
-    3. availability of forecast dates.
+    Validated ML:
+        May reach HIGH engineering confidence when the live
+        grid is entirely inside the validated training domain
+        and operational data support is strong.
 
-    Because the literature HSI has not yet been independently
-    validated against fish observations, overall confidence is
-    capped at MODERATE.
+    Literature fallback:
+        Retrospectively supported by historical anchoveta
+        observations, but retained as the conservative
+        ecological fallback during ML out-of-domain events.
+        Overall confidence is therefore capped at MODERATE.
     """
 
-    required_hsi = [
-        "temperature",
-        "salinity",
-        "oxygen_ml_l",
-    ]
+    # --------------------------------------------------------
+    # Identify the model actually driving the operational HSI
+    # --------------------------------------------------------
+
+    if (
+        "operational_model"
+        in current_data.columns
+        and
+        not current_data.empty
+    ):
+
+        operational_model = str(
+            current_data[
+                "operational_model"
+            ].iloc[0]
+        )
+
+    else:
+
+        operational_model = (
+            "Literature HSI"
+        )
+
+
+    ml_primary = (
+        operational_model
+        ==
+        "Validated ML HSI"
+    )
+
+
+    # --------------------------------------------------------
+    # Predictor completeness
+    # --------------------------------------------------------
+
+    if ml_primary:
+
+        required_hsi = [
+            "temperature",
+            "salinity",
+            "ml_oxygen_mg_l",
+            "ml_log_bottom_depth",
+            "ml_sst_anomaly_c",
+            "ml_month_sin",
+            "ml_month_cos",
+            "validated_ml_hsi",
+        ]
+
+    else:
+
+        required_hsi = [
+            "temperature",
+            "salinity",
+            "oxygen_ml_l",
+            "literature_hsi",
+        ]
+
 
     same_date = ocean[
         ocean[
@@ -2982,18 +3582,42 @@ def assess_primary_hsi_confidence(
         current_date
     ].copy()
 
-    # --------------------------------------------------------
-    # HSI predictor completeness
-    # --------------------------------------------------------
 
-    if same_date.empty:
+    # The engineered ML fields live in current_data, not the
+    # pre-scoring ocean frame.
+    coverage_source = (
+        current_data
+        if ml_primary
+        else
+        current_data
+    )
+
+
+    available_required = [
+        c
+        for c in required_hsi
+        if c in coverage_source.columns
+    ]
+
+
+    if (
+        coverage_source.empty
+        or
+        len(
+            available_required
+        )
+        !=
+        len(
+            required_hsi
+        )
+    ):
 
         coverage_pct = 0.0
 
     else:
 
         complete_mask = (
-            same_date[
+            coverage_source[
                 required_hsi
             ]
             .notna()
@@ -3007,6 +3631,7 @@ def assess_primary_hsi_confidence(
             *
             complete_mask.mean()
         )
+
 
     if coverage_pct >= 90.0:
 
@@ -3026,9 +3651,6 @@ def assess_primary_hsi_confidence(
 
     # --------------------------------------------------------
     # Data freshness
-    #
-    # These are engineering diagnostic thresholds,
-    # not biological habitat thresholds.
     # --------------------------------------------------------
 
     today = pd.Timestamp(
@@ -3049,6 +3671,7 @@ def assess_primary_hsi_confidence(
             ).days
         )
     )
+
 
     if age_days <= 2:
 
@@ -3082,9 +3705,11 @@ def assess_primary_hsi_confidence(
         )
     ]
 
+
     forecast_date_count = len(
         future_dates
     )
+
 
     if forecast_date_count >= 3:
 
@@ -3114,6 +3739,7 @@ def assess_primary_hsi_confidence(
         forecast_score
     )
 
+
     if support_score >= 5:
 
         raw_support = "High"
@@ -3128,28 +3754,73 @@ def assess_primary_hsi_confidence(
 
 
     # --------------------------------------------------------
-    # Evidence ceiling
-    #
-    # HSI is literature-based but not yet independently
-    # validated against observed anchoveta distributions.
+    # Evidence interpretation
     # --------------------------------------------------------
 
-    if raw_support == "High":
+    if ml_primary:
 
-        overall_confidence = "Moderate"
+        overall_confidence = (
+            raw_support
+        )
+
+        evidence_ceiling = (
+            "High"
+        )
+
+        confidence_note = (
+            "Validated ML is operational because all scored "
+            "live cells are inside the Phase 2 training domain. "
+            "Validation used held-out survey and year testing; "
+            "HSI remains a habitat-ranking index rather than "
+            "probability of fish presence."
+        )
+
+        model_validation_status = (
+            "Retrospectively validated — "
+            "survey/year held-out"
+        )
 
     else:
 
-        overall_confidence = raw_support
+        if raw_support == "High":
+
+            overall_confidence = (
+                "Moderate"
+            )
+
+        else:
+
+            overall_confidence = (
+                raw_support
+            )
+
+
+        evidence_ceiling = (
+            "Moderate"
+        )
+
+        confidence_note = (
+            "Literature HSI is currently the operational safety "
+            "fallback because live conditions are outside the "
+            "validated ML domain. The literature HSI has been "
+            "retrospectively evaluated against historical "
+            "anchoveta observations, but extreme-event "
+            "performance has not been prospectively validated."
+        )
+
+        model_validation_status = (
+            "Retrospectively evaluated — "
+            "ecological fallback"
+        )
 
 
     # --------------------------------------------------------
-    # Spatial diagnostics — displayed but NOT used to create
-    # the confidence category.
+    # Spatial diagnostics
     # --------------------------------------------------------
 
     hsi_gap = np.nan
     near_best_cells = 0
+
 
     if (
         "hsi"
@@ -3172,11 +3843,13 @@ def assess_primary_hsi_confidence(
             ].median()
         )
 
+
         hsi_gap = (
             max_hsi
             -
             median_hsi
         )
+
 
         near_best_cells = int(
             (
@@ -3224,8 +3897,20 @@ def assess_primary_hsi_confidence(
             near_best_cells,
 
         "evidence_ceiling":
-            "Moderate",
+            evidence_ceiling,
 
+        "operational_model":
+            operational_model,
+
+        "model_validation_status":
+            model_validation_status,
+
+        "confidence_note":
+            confidence_note,
+
+        # Kept for compatibility with any existing UI logic.
+        # Neither retrospective workflow is a truly external,
+        # prospective independent validation dataset.
         "independently_validated":
             False,
     }
@@ -6301,16 +6986,174 @@ current_data = calculate_hsi(
     current_date.month
 )
 
-experimental_manifest = (
-    load_experimental_model_manifest()
+
+# Preserve the current literature-based HSI explicitly.
+# Stage 1 does NOT yet change the primary best-zone logic.
+current_data[
+    "literature_hsi"
+] = current_data[
+    "hsi"
+]
+
+
+validated_ml_artifacts = (
+    load_validated_ml_artifacts()
 )
 
-current_data, experimental_ml_diagnostics = (
-    score_experimental_ml_live(
+
+current_data, validated_ml_diagnostics = (
+    score_validated_ml_live(
         current_data,
-        experimental_manifest
+        current_date,
+        validated_ml_artifacts,
     )
 )
+
+
+# ============================================================
+# AUTOMATIC OPERATIONAL MODEL SELECTION
+#
+# The generic "hsi" column is the single operational interface
+# used by downstream best-zone, map, advisory and SMS logic.
+#
+# - Validated ML is primary only when the COMPLETE live grid
+#   lies inside the validated Phase 2 training domain.
+# - Otherwise the Literature HSI becomes the safety fallback.
+# ============================================================
+
+ml_primary_eligible = (
+    validated_ml_diagnostics.get(
+        "operational_status"
+    )
+    ==
+    "VALIDATED_ML_PRIMARY_ELIGIBLE"
+)
+
+
+if (
+    ml_primary_eligible
+    and
+    current_data[
+        "validated_ml_hsi"
+    ].notna().all()
+):
+
+    current_data[
+        "hsi"
+    ] = current_data[
+        "validated_ml_hsi"
+    ]
+
+    current_data[
+        "operational_model"
+    ] = (
+        "Validated ML HSI"
+    )
+
+    current_data[
+        "operational_mode"
+    ] = (
+        "ML primary"
+    )
+
+    current_data[
+        "operational_reason"
+    ] = (
+        "All scored live cells are inside the "
+        "validated Phase 2 ML training domain."
+    )
+
+
+else:
+
+    current_data[
+        "hsi"
+    ] = current_data[
+        "literature_hsi"
+    ]
+
+    current_data[
+        "operational_model"
+    ] = (
+        "Literature HSI"
+    )
+
+    current_data[
+        "operational_mode"
+    ] = (
+        "Safety fallback"
+    )
+
+    current_data[
+        "operational_reason"
+    ] = (
+        "Validated ML is not operational for this date "
+        "because one or more live predictors fall outside "
+        "the validated historical training domain."
+    )
+
+
+current_data[
+    "literature_class"
+] = current_data[
+    "literature_hsi"
+].apply(
+    hsi_class
+)
+
+
+current_data[
+    "operational_class"
+] = current_data[
+    "hsi"
+].apply(
+    hsi_class
+)
+
+
+
+# ------------------------------------------------------------
+# Candidate operational primary model.
+#
+# We do not overwrite the legacy "hsi" column yet. This lets
+# us test the automatic ML/literature switching rule safely.
+# ------------------------------------------------------------
+
+current_data[
+    "primary_hsi_candidate"
+] = current_data[
+    "literature_hsi"
+]
+
+
+current_data[
+    "primary_model_candidate"
+] = (
+    "Literature HSI"
+)
+
+
+if (
+    validated_ml_diagnostics.get(
+        "operational_status"
+    )
+    ==
+    "VALIDATED_ML_PRIMARY_ELIGIBLE"
+):
+
+    current_data[
+        "primary_hsi_candidate"
+    ] = current_data[
+        "validated_ml_hsi"
+    ]
+
+    current_data[
+        "primary_model_candidate"
+    ] = (
+        "Validated ML HSI"
+    )
+
+
 
 current_data[
     "class"
@@ -6351,133 +7194,6 @@ reference = habitat_reference(
     current_date.month
 )
 
-experimental_ml_best = None
-experimental_rank_correlation = np.nan
-experimental_rank_correlation_reason = None
-experimental_best_zone_distance_km = np.nan
-experimental_agreement = "Unavailable"
-
-if (
-    experimental_ml_diagnostics[
-        "available"
-    ]
-    and
-    current_data[
-        "experimental_ml_score"
-    ].notna().any()
-):
-
-    experimental_ml_best = (
-        current_data.loc[
-            current_data[
-                "experimental_ml_score"
-            ].idxmax()
-        ]
-    )
-
-    comparison = current_data[
-        [
-            "hsi",
-            "experimental_ml_score",
-        ]
-    ].dropna()
-
-    if len(
-        comparison
-    ) >= 2:
-
-        hsi_rank = (
-            comparison[
-                "hsi"
-            ]
-            .rank(
-                method="average"
-            )
-        )
-
-        ml_rank = (
-            comparison[
-                "experimental_ml_score"
-            ]
-            .rank(
-                method="average"
-            )
-        )
-
-        if hsi_rank.nunique() < 2:
-
-            experimental_rank_correlation_reason = (
-                "HSI values are tied across the scored "
-                "live grid cells."
-            )
-
-        elif ml_rank.nunique() < 2:
-
-            experimental_rank_correlation_reason = (
-                "Experimental ML scores are tied across "
-                "the scored live grid cells."
-            )
-
-        else:
-
-            experimental_rank_correlation = (
-                hsi_rank.corr(
-                    ml_rank
-                )
-            )
-
-    envelope_pct = (
-        experimental_ml_diagnostics.get(
-            "inside_training_envelope_pct",
-            np.nan
-        )
-    )
-
-    if (
-        pd.notna(
-            envelope_pct
-        )
-        and
-        envelope_pct <= 0
-    ):
-
-        experimental_agreement = (
-            "Not interpreted"
-        )
-
-    else:
-
-        experimental_agreement = (
-            experimental_rank_agreement_label(
-                experimental_rank_correlation
-            )
-        )
-
-    experimental_best_zone_distance_km = (
-        haversine(
-            float(
-                best[
-                    "lat"
-                ]
-            ),
-            float(
-                best[
-                    "lon"
-                ]
-            ),
-            float(
-                experimental_ml_best[
-                    "lat"
-                ]
-            ),
-            float(
-                experimental_ml_best[
-                    "lon"
-                ]
-            ),
-        )
-    )
-
 coastline_lines = (
     load_noaa_coastline_lines()
 )
@@ -6498,12 +7214,12 @@ cols[0].metric(
 )
 
 cols[1].metric(
-    "Highest HSI",
+    "Highest Operational HSI",
     f"{best['hsi']:.2f}"
 )
 
 cols[2].metric(
-    "Highest-HSI SST",
+    "Best-Zone SST",
     f"{best['temperature']:.2f} °C"
 )
 
@@ -6549,223 +7265,232 @@ cols[3].metric(
 )
 
 st.subheader(
-    "🧪 Experimental ML Comparison"
+    "🧠 Operational Habitat Model"
 )
 
-st.caption(
-    "Secondary research layer only. "
-    "The experimental conditional model does not change "
-    "the HSI, best-zone selection, forecast habitat shift "
-    "or fisher SMS."
-)
 
-if (
-    experimental_ml_diagnostics[
-        "available"
+operational_model = str(
+    best[
+        "operational_model"
     ]
-    and
-    experimental_ml_best is not None
-):
+)
 
-    cols = st.columns(
-        4
+
+operational_mode = str(
+    best[
+        "operational_mode"
+    ]
+)
+
+
+operational_status = (
+    validated_ml_diagnostics.get(
+        "operational_status",
+        "UNAVAILABLE",
     )
+)
 
-    envelope_pct = (
-        experimental_ml_diagnostics[
-            "inside_training_envelope_pct"
-        ]
-    )
 
-    ml_live_status = (
-        "Out-of-envelope"
-        if envelope_pct <= 0
-        else
-        "Exploratory"
-    )
+model_cols = st.columns(
+    4
+)
 
-    cols[0].metric(
-        "Experimental ML Status",
-        ml_live_status
-    )
 
-    cols[1].metric(
-        "HSI ↔ ML Rank Agreement",
-        experimental_agreement
-    )
+model_cols[0].metric(
+    "Model in Use",
+    operational_model,
+)
 
-    cols[2].metric(
-        "Rank Correlation",
-        (
-            f"{experimental_rank_correlation:.2f}"
-            if pd.notna(
-                experimental_rank_correlation
-            )
-            else
-            "Unavailable"
-        )
-    )
 
-    cols[3].metric(
-        "Best-Zone Separation",
-        (
-            f"{experimental_best_zone_distance_km:.2f} km"
-            if pd.notna(
-                experimental_best_zone_distance_km
-            )
-            else
-            "Unavailable"
-        )
-    )
+model_cols[1].metric(
+    "Operational HSI",
+    f"{best['hsi']:.2f}",
+)
 
-    if (
-        pd.isna(
-            experimental_rank_correlation
-        )
-        and
-        experimental_rank_correlation_reason
-    ):
 
-        st.caption(
-            "Rank correlation unavailable: "
-            +
-            experimental_rank_correlation_reason
-        )
-
-    cols = st.columns(
-        4
-    )
-
-    cols[0].metric(
-        "ML Best Latitude",
-        f"{experimental_ml_best['lat']:.4f}"
-    )
-
-    cols[1].metric(
-        "ML Best Longitude",
-        f"{experimental_ml_best['lon']:.4f}"
-    )
-
-    cols[2].metric(
-        "Live Cells Scored",
-        (
-            f"{experimental_ml_diagnostics['cells_scored']:,}"
-        )
-    )
-
-    cols[3].metric(
-        "Inside Training Envelope",
-        (
-            f"{experimental_ml_diagnostics['inside_training_envelope_pct']:.1f}%"
-        )
-    )
-
-    ml_best_in_envelope = bool(
-        experimental_ml_best[
-            "experimental_ml_in_training_envelope"
-        ]
-    )
-
-    if envelope_pct <= 0:
-
-        st.error(
-            "All currently scored live cells are outside "
-            "the experimental ML training envelope. "
-            "The ML ranking and best-zone separation are "
-            "shown for research transparency only and should "
-            "not be interpreted as reliable habitat guidance."
-        )
-
-    elif ml_best_in_envelope:
-
-        st.success(
-            "The experimental ML best-ranked live cell "
-            "is inside the environmental range represented "
-            "in the model training data."
-        )
-
-    else:
-
-        outside_count = int(
-            experimental_ml_best[
-                "experimental_ml_outside_training_count"
+model_cols[2].metric(
+    "Suitability",
+    hsi_class(
+        float(
+            best[
+                "hsi"
             ]
         )
-
-        st.warning(
-            "The experimental ML best-ranked live cell is "
-            f"outside the training range for {outside_count} "
-            "predictor(s). Treat this experimental ranking "
-            "with additional caution."
-        )
-
-    with st.expander(
-        "🔎 Live vs Experimental ML Training Ranges"
-    ):
-
-        envelope_table = pd.DataFrame(
-            experimental_ml_diagnostics.get(
-                "feature_envelope",
-                []
-            )
-        )
-
-        if not envelope_table.empty:
-
-            st.dataframe(
-                envelope_table,
-                width="stretch",
-                hide_index=True
-            )
-
-            st.caption(
-                "A cell is outside the training envelope when "
-                "at least one live predictor is below the minimum "
-                "or above the maximum observed in the final "
-                "34-anchor experimental training dataset."
-            )
-
-        else:
-
-            st.info(
-                "No predictor-range diagnostics are available."
-            )
+    ),
+)
 
 
-    with st.expander(
-        "What does the experimental ML score mean?"
-    ):
+model_cols[3].metric(
+    "ML Domain Coverage",
+    (
+        f"{validated_ml_diagnostics.get('inside_training_envelope_pct', 0.0):.1f}%"
+    ),
+)
 
-        st.markdown(
-            """
-- The model was trained using **34 matched anchoveta presence sets** after strict environmental and bathymetric QC.
-- Background locations represent **locally available habitat**, not confirmed fish absence.
-- The displayed ML value is ranked **relative to the current live grid**.
-- It is **not** a probability that anchoveta are present at a coordinate.
-- Year-held-out matched concordance was **0.598** and Top-1 performance was **0.324**.
-- Robust spatial transfer could **not** be established because the valid historical observations were strongly geographically concentrated.
-- The literature-based **HSI remains the primary habitat model**.
-"""
-        )
 
-        st.caption(
-            "High / Moderate / Low rank-agreement labels are "
-            "dashboard diagnostics only. They are not biological "
-            "or validated fisheries-management thresholds."
-        )
+if (
+    operational_model
+    ==
+    "Validated ML HSI"
+):
+
+    st.success(
+        "Validated ML is the primary operational habitat-ranking "
+        "model for this date because all scored live cells are "
+        "inside its validated historical training domain."
+    )
+
+
+    reference_cols = st.columns(
+        2
+    )
+
+
+    reference_cols[0].metric(
+        "Validated ML HSI",
+        f"{best['validated_ml_hsi']:.2f}",
+    )
+
+
+    reference_cols[1].metric(
+        "Literature Reference HSI",
+        f"{best['literature_hsi']:.2f}",
+    )
+
 
 else:
 
     st.warning(
-        "Experimental ML live scoring is unavailable: "
-        +
-        str(
-            experimental_ml_diagnostics.get(
-                "reason",
-                "unknown reason"
-            )
+        "Validated ML HSI is withheld for operational guidance "
+        "because current environmental conditions extend outside "
+        "its validated historical training domain. "
+        "The Literature HSI is therefore being used as the "
+        "operational safety fallback."
+    )
+
+
+    fallback_cols = st.columns(
+        3
+    )
+
+
+    fallback_cols[0].metric(
+        "Literature HSI",
+        f"{best['literature_hsi']:.2f}",
+    )
+
+
+    fallback_cols[1].metric(
+        "Validated ML HSI",
+        "WITHHELD",
+    )
+
+
+    fallback_cols[2].metric(
+        "Cells Inside ML Domain",
+        (
+            f"{validated_ml_diagnostics.get('cells_inside_training_envelope', 0)}"
+            "/"
+            f"{validated_ml_diagnostics.get('cells_scored', 0)}"
+        ),
+    )
+
+
+    outside_features = pd.DataFrame(
+        validated_ml_diagnostics.get(
+            "out_of_domain_features",
+            [],
         )
     )
+
+
+    if not outside_features.empty:
+
+        st.markdown(
+            "**Why ML was withheld**"
+        )
+
+        st.dataframe(
+            outside_features,
+            hide_index=True,
+            use_container_width=True,
+        )
+
+
+with st.expander(
+    "🔎 Model interpretation and validation"
+):
+
+    if (
+        operational_model
+        ==
+        "Validated ML HSI"
+    ):
+
+        st.markdown(
+            """
+- **Validated ML HSI is the operational model for this date.**
+- The model uses SST, salinity, dissolved oxygen, bottom depth, SST anomaly and cyclic month.
+- HSI is calculated as the historical percentile of the model score relative to the frozen **2,234-record Phase 2 reference distribution**.
+- The model was evaluated using held-out survey and held-out year validation.
+- HSI is **not** probability that fish are present and does not identify an exact fish coordinate.
+- The Literature HSI remains available as an ecological reference layer.
+"""
+        )
+
+    else:
+
+        st.markdown(
+            """
+- **Literature HSI is the operational fallback for this date.**
+- The validated ML model has detected environmental conditions outside the historical range on which it was validated.
+- The extrapolated ML percentile is retained only for scientific diagnostics and is **not released as operational ML HSI**.
+- The Literature HSI uses published temperature, salinity and dissolved-oxygen habitat ranges.
+- The Literature HSI was retrospectively evaluated against the Phase 2 anchoveta observations, but extreme-event performance has not been prospectively validated.
+- Neither HSI should be interpreted as probability of fish presence or an exact fish location.
+"""
+        )
+
+
+    diagnostic_min = (
+        validated_ml_diagnostics.get(
+            "diagnostic_percentile_min",
+            np.nan,
+        )
+    )
+
+    diagnostic_median = (
+        validated_ml_diagnostics.get(
+            "diagnostic_percentile_median",
+            np.nan,
+        )
+    )
+
+    diagnostic_max = (
+        validated_ml_diagnostics.get(
+            "diagnostic_percentile_max",
+            np.nan,
+        )
+    )
+
+
+    if (
+        pd.notna(
+            diagnostic_min
+        )
+        and
+        operational_model
+        !=
+        "Validated ML HSI"
+    ):
+
+        st.caption(
+            "Out-of-domain diagnostic ML percentile "
+            f"(not operational): "
+            f"{diagnostic_min:.3f} → "
+            f"{diagnostic_max:.3f}; "
+            f"median {diagnostic_median:.3f}."
+        )
 
 
 st.subheader(
@@ -6776,6 +7501,13 @@ st.caption(
     "Confidence describes how well the current HSI output is "
     "supported by available environmental data. "
     "It is not a probability that fish are present."
+)
+
+
+st.caption(
+    hsi_confidence[
+        "confidence_note"
+    ]
 )
 
 confidence_cols = st.columns(
@@ -6832,11 +7564,11 @@ if (
 
 else:
 
-    st.info(
-        "Primary HSI confidence is capped at MODERATE because "
-        "the literature-based HSI has not yet been independently "
-        "validated against observed anchoveta distributions."
-    )
+    st.caption(
+    hsi_confidence[
+        "confidence_note"
+    ]
+)
 
 
 with st.expander(
@@ -7710,15 +8442,23 @@ cols[3].metric(
     ]
 )
 
-st.info(
-    "The primary HSI uses temperature, salinity and "
-    "surface dissolved oxygen from the literature-based "
-    "reference ranges. The experimental ML layer is displayed "
-    "separately and does not alter the HSI forecast."
-)
+# ============================================================
+# FORECAST-WIDE OPERATIONAL MODEL SELECTION
+#
+# IMPORTANT:
+# A habitat-shift calculation must use ONE consistent model
+# across the complete forecast period. Otherwise an apparent
+# centroid movement could simply be caused by switching models.
+#
+# Therefore:
+# - ML is used only if EVERY scored cell on EVERY forecast date
+#   is inside the validated Phase 2 ML domain.
+# - If any forecast date is out-of-domain, Literature HSI is
+#   used for the entire forecast period.
+# ============================================================
 
-forecast_centres = []
-forecast_results = []
+forecast_prepared = {}
+
 
 for forecast_date in available_dates:
 
@@ -7733,16 +8473,177 @@ for forecast_date in available_dates:
             "oxygen_ml_l",
             "water_depth_m",
             "distance_coast_km",
-            "distance_coast_nm"
+            "distance_coast_nm",
         ]
     ).copy()
+
 
     if frame.empty:
         continue
 
+
+    # --------------------------------------------------------
+    # Literature Reference HSI
+    # --------------------------------------------------------
+
     frame = calculate_hsi(
         frame,
         forecast_date.month
+    )
+
+
+    frame[
+        "literature_hsi"
+    ] = frame[
+        "hsi"
+    ]
+
+
+    # --------------------------------------------------------
+    # Validated Phase 2 ML HSI
+    # --------------------------------------------------------
+
+    frame, forecast_ml_diagnostics = (
+        score_validated_ml_live(
+            frame,
+            forecast_date,
+            validated_ml_artifacts,
+        )
+    )
+
+
+    ml_date_eligible = (
+        forecast_ml_diagnostics.get(
+            "operational_status"
+        )
+        ==
+        "VALIDATED_ML_PRIMARY_ELIGIBLE"
+        and
+        frame[
+            "validated_ml_hsi"
+        ].notna().all()
+    )
+
+
+    forecast_prepared[
+        forecast_date
+    ] = {
+        "frame":
+            frame,
+
+        "ml_diagnostics":
+            forecast_ml_diagnostics,
+
+        "ml_eligible":
+            bool(
+                ml_date_eligible
+            ),
+    }
+
+
+# ------------------------------------------------------------
+# Choose ONE model for the full forecast horizon
+# ------------------------------------------------------------
+
+forecast_use_ml = (
+    bool(
+        forecast_prepared
+    )
+    and
+    all(
+        item[
+            "ml_eligible"
+        ]
+        for item
+        in forecast_prepared.values()
+    )
+)
+
+
+if forecast_use_ml:
+
+    forecast_operational_model = (
+        "Validated ML HSI"
+    )
+
+    st.success(
+        "The complete forecast horizon is inside the validated "
+        "Phase 2 ML domain. The 72-hour habitat-shift forecast "
+        "therefore uses Validated ML HSI consistently across "
+        "all forecast dates."
+    )
+
+else:
+
+    forecast_operational_model = (
+        "Literature HSI"
+    )
+
+    st.info(
+        "The 72-hour habitat-shift forecast uses Literature HSI "
+        "for the entire forecast period because at least one "
+        "forecast date is outside the validated ML domain. "
+        "A single model is used across the whole period so the "
+        "reported centroid shift is not distorted by switching "
+        "models between dates."
+    )
+
+
+forecast_centres = []
+forecast_results = []
+
+
+for forecast_date in available_dates:
+
+    prepared = forecast_prepared.get(
+        forecast_date
+    )
+
+
+    if prepared is None:
+        continue
+
+
+    frame = prepared[
+        "frame"
+    ].copy()
+
+
+    if forecast_use_ml:
+
+        frame[
+            "hsi"
+        ] = frame[
+            "validated_ml_hsi"
+        ]
+
+        frame[
+            "operational_model"
+        ] = (
+            "Validated ML HSI"
+        )
+
+    else:
+
+        frame[
+            "hsi"
+        ] = frame[
+            "literature_hsi"
+        ]
+
+        frame[
+            "operational_model"
+        ] = (
+            "Literature HSI"
+        )
+
+
+    frame[
+        "class"
+    ] = frame[
+        "hsi"
+    ].apply(
+        hsi_class
     )
 
     centre = habitat_centroid(
@@ -7812,7 +8713,7 @@ for forecast_date in available_dates:
                     ]
                 ),
 
-            "Highest HSI":
+            "Highest Operational HSI":
                 round(
                     float(
                         bf[
@@ -9022,6 +9923,12 @@ sms_message = f"""E-AWARE Fisheries Advisory
 Date:
 {current_date}
 
+Operational habitat model:
+{best['operational_model']}
+
+72-hour habitat-shift model:
+{forecast_operational_model}
+
 Anchoveta habitat suitability:
 {hsi_class(best_hsi).upper()} (HSI {best_hsi:.2f})
 
@@ -9098,6 +10005,16 @@ if _eaware_os.environ.get("EAWARE_AUTOMATION_MODE") == "1":
 
         "hsi_class":
             hsi_class(best_hsi).upper(),
+
+        "operational_model":
+            str(
+                best[
+                    "operational_model"
+                ]
+            ),
+
+        "forecast_model":
+            forecast_operational_model,
 
         "advisory":
             sms_message,
@@ -9766,83 +10683,67 @@ st.dataframe(
 )
 
 st.subheader(
-    "🧪 E-AWARE Model Status"
+    "🧠 E-AWARE Model Status"
 )
 
-model_manifest = (
-    load_experimental_model_manifest()
-)
-
-cols = st.columns(
+status_cols = st.columns(
     2
 )
 
-cols[0].success(
-    "**PRIMARY — Literature HSI**\n\n"
-    "The live habitat map, best-zone selection and "
-    "72-hour habitat-shift forecast continue to use "
-    "the literature-based Habitat Suitability Index."
+status_cols[0].success(
+    "**CURRENT OPERATIONAL MODEL — "
+    + str(
+        best[
+            "operational_model"
+        ]
+    )
+    + "**\n\n"
+    + str(
+        best[
+            "operational_reason"
+        ]
+    )
 )
 
-if model_manifest:
-
-    validation = model_manifest.get(
-        "validation_summary",
-        {}
+status_cols[1].info(
+    "**72-HOUR FORECAST MODEL — "
+    + str(
+        forecast_operational_model
     )
+    + "**\n\n"
+    "One consistent habitat model is used across the full "
+    "forecast horizon so model switching cannot create a "
+    "false habitat-centroid shift."
+)
 
-    year_concordance = validation.get(
-        "year_holdout_concordance"
-    )
+status_cols = st.columns(
+    3
+)
 
-    year_top1 = validation.get(
-        "year_holdout_top1"
-    )
+status_cols[0].metric(
+    "ML Domain Coverage",
+    f"{validated_ml_diagnostics.get('inside_training_envelope_pct', 0.0):.1f}%"
+)
 
-    anchors = model_manifest.get(
-        "training_anchors",
-        "—"
-    )
+status_cols[1].metric(
+    "Production Reference Records",
+    f"{validated_ml_diagnostics.get('reference_score_count', 0):,}"
+)
 
-    concordance_text = (
-        f"{year_concordance:.3f}"
-        if isinstance(
-            year_concordance,
-            (int, float)
-        )
-        else
-        "—"
-    )
+status_cols[2].metric(
+    "Model Evidence Status",
+    hsi_confidence[
+        "model_validation_status"
+    ],
+)
 
-    top1_text = (
-        f"{year_top1:.3f}"
-        if isinstance(
-            year_top1,
-            (int, float)
-        )
-        else
-        "—"
-    )
-
-    cols[1].info(
-        "**SECONDARY — Experimental Conditional ML**\n\n"
-        f"Training anchors: **{anchors}**  \n"
-        f"Year-held-out matched concordance: "
-        f"**{concordance_text}**  \n"
-        f"Year-held-out Top-1: **{top1_text}**  \n\n"
-        "Spatial transfer could not be robustly validated. "
-        "The score must not be interpreted as probability "
-        "of anchoveta presence."
-    )
-
-else:
-
-    cols[1].warning(
-        "**SECONDARY — Experimental Conditional ML**\n\n"
-        "The experimental-model manifest is not available "
-        "in this deployment. The primary HSI remains fully "
-        "available."
-    )
+st.caption(
+    "Validated ML is the preferred operational habitat-ranking "
+    "model when the full live grid lies inside its validated "
+    "historical domain. Literature HSI automatically becomes "
+    "the safety fallback during out-of-domain environmental "
+    "conditions."
+)
 
 with st.expander(
     "⚙️ E-AWARE Model & Data Limitations"

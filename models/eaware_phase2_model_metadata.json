@@ -1,0 +1,131 @@
+{
+  "model_name": "E-AWARE Phase 2 Anchoveta Habitat Ranking Model",
+  "model_type": "balanced logistic regression",
+  "target": "anchoveta presence / absence",
+  "records": 2234,
+  "detections": 544,
+  "non_detections": 1690,
+  "historical_sample_prevalence": 0.24350940017905104,
+  "C": 0.1,
+  "class_weight": "balanced",
+  "features": [
+    "deploy_sst_c",
+    "deploy_sss_psu",
+    "deploy_oxygen_mg_l",
+    "deploy_log_bottom_depth",
+    "sst_anomaly_c",
+    "month_sin",
+    "month_cos"
+  ],
+  "raw_score_interpretation": "Internal balanced-logistic ranking score. Do not display as literal occurrence probability.",
+  "hsi_interpretation": "Percentile of the model score relative to the historical E-AWARE training reference distribution.",
+  "hsi_classes": {
+    "Low": [
+      0.0,
+      0.3
+    ],
+    "Moderate": [
+      0.3,
+      0.6
+    ],
+    "High": [
+      0.6,
+      0.8
+    ],
+    "Very High": [
+      0.8,
+      1.0
+    ]
+  },
+  "validation": {
+    "nested_leave_one_survey_out_roc_auc": 0.755,
+    "nested_leave_one_survey_out_pr_auc": 0.4242,
+    "nested_leave_one_year_out_roc_auc": 0.7269,
+    "nested_leave_one_year_out_pr_auc": 0.401,
+    "historical_baseline_presence": 0.2435
+  },
+  "operational_warning": "HSI represents relative habitat suitability, not exact fish location and not a calibrated probability of anchoveta presence.",
+  "training_envelope": {
+    "deploy_sst_c": {
+      "min": 18.57048249989748,
+      "p01": 19.060487687587738,
+      "p05": 19.619342632591724,
+      "median": 23.31452375650406,
+      "p95": 26.770195618271828,
+      "p99": 27.28583635389805,
+      "max": 27.337839893996716,
+      "mean": 23.374521561410535,
+      "std": 2.407103983082364
+    },
+    "deploy_sss_psu": {
+      "min": 32.898953184485435,
+      "p01": 33.103427197784185,
+      "p05": 33.29111603088677,
+      "median": 34.38520459458232,
+      "p95": 34.93453776463866,
+      "p99": 34.9604784976691,
+      "max": 35.18021176569164,
+      "mean": 34.31118081606034,
+      "std": 0.5009390680459676
+    },
+    "deploy_oxygen_mg_l": {
+      "min": 6.29666552734375,
+      "p01": 6.31360595703125,
+      "p05": 6.62466357421875,
+      "median": 7.03731884765625,
+      "p95": 7.3673916015625,
+      "p99": 7.4655807373046885,
+      "max": 7.616173828125,
+      "mean": 7.035714688566613,
+      "std": 0.23231224938386305
+    },
+    "deploy_log_bottom_depth": {
+      "min": 2.1972245773362196,
+      "p01": 2.8903717578961645,
+      "p05": 3.1354942159291497,
+      "median": 7.584764815266188,
+      "p95": 8.58110651715989,
+      "p99": 8.586284454210768,
+      "max": 8.592300663903043,
+      "mean": 6.766558369870469,
+      "std": 1.8731987056217523
+    },
+    "sst_anomaly_c": {
+      "min": -2.61775566637516,
+      "p01": -2.524735249578953,
+      "p05": -1.9204687625169754,
+      "median": 0.09302041679620743,
+      "p95": 2.516678363084793,
+      "p99": 2.639728993177414,
+      "max": 3.0337839871644974,
+      "mean": 0.2582869157695354,
+      "std": 1.3473495949287908
+    },
+    "month_sin": {
+      "min": -1.0,
+      "p01": -0.8660254037844386,
+      "p05": -0.8660254037844386,
+      "median": 0.49999999999999994,
+      "p95": 0.8660254037844386,
+      "p99": 1.0,
+      "max": 1.0,
+      "mean": 0.1827140848175242,
+      "std": 0.6877457787124388
+    },
+    "month_cos": {
+      "min": -1.8369701987210297e-16,
+      "p01": 6.123233995736766e-17,
+      "p05": 0.5000000000000001,
+      "median": 0.5000000000000001,
+      "p95": 0.8660254037844387,
+      "p99": 1.0,
+      "max": 1.0,
+      "mean": 0.6706260592064105,
+      "std": 0.2094802992784659
+    }
+  },
+  "domain_rule": {
+    "operational_definition": "A live prediction is considered outside the validated ML domain when one or more production predictors fall outside the observed Phase 2 training min-max range.",
+    "handling": "Do not interpret historical-percentile ML HSI as validated habitat suitability outside this envelope. Use literature HSI as operational fallback and retain ML ranking as diagnostic only."
+  }
+}

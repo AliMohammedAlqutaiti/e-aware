@@ -8,3 +8,22 @@ data/processed/
 obis_output/
 data/models/
 data/public_occurrences/
+
+# ============================================================
+# E-AWARE Phase 2 scientific data
+# Raw/licensed source data and large intermediate datasets are
+# intentionally excluded from Git.
+# ============================================================
+
+data/imarpe/*
+
+# Keep compact validation / production summaries
+!data/imarpe/phase2_final_nested_validation_summary.csv
+!data/imarpe/phase2_final_nested_coefficients.csv
+!data/imarpe/phase2_final_coefficient_stability.csv
+!data/imarpe/phase2_hsi_fold_relative_validation.csv
+!data/imarpe/phase2_hsi_fold_relative_folds.csv
+!data/imarpe/phase2_literature_vs_ml_summary.csv
+!data/imarpe/phase2_literature_vs_ml_bands.csv
+!data/imarpe/phase2_production_model_coefficients.csv
+!data/imarpe/phase2_live_vs_reanalysis_sst_audit.csv
