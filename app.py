@@ -18,6 +18,49 @@ import joblib
 # PAGE / STUDY AREA
 # ============================================================
 st.set_page_config(page_title="E-AWARE", page_icon="🐟", layout="wide")
+
+st.markdown(
+    """
+    <style>
+
+    .block-container {
+        padding-top: 1.4rem;
+        padding-bottom: 2rem;
+        max-width: 1250px;
+    }
+
+    h1 {
+        margin-bottom: 0.15rem;
+    }
+
+    h2, h3 {
+        margin-top: 0.8rem;
+        margin-bottom: 0.45rem;
+    }
+
+    [data-testid="stMetric"] {
+        border: 1px solid rgba(128, 128, 128, 0.20);
+        border-radius: 12px;
+        padding: 0.65rem 0.8rem;
+    }
+
+    [data-testid="stMetricLabel"] {
+        font-size: 0.82rem;
+    }
+
+    [data-testid="stMetricValue"] {
+        font-size: 1.45rem;
+    }
+
+    div[data-testid="stExpander"] {
+        border-radius: 10px;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.title("🐟 E-AWARE")
 st.caption(
     "El Niño Adaptive Fisheries Intelligence — "
@@ -6544,7 +6587,7 @@ def match_historical_environment(
 with st.sidebar:
 
     st.header(
-        "E-AWARE Controls"
+        "Controls"
     )
 
     st.markdown(
@@ -6595,7 +6638,7 @@ with st.sidebar:
     st.divider()
 
     st.markdown(
-        "### V2 Observation Data"
+        "### Data Status"
     )
 
     if (
@@ -7199,7 +7242,7 @@ coastline_lines = (
 )
 
 st.subheader(
-    "🌊 Current Ocean Conditions"
+    "🌊 Today's Habitat Summary"
 )
 
 cols = st.columns(
@@ -9137,753 +9180,51 @@ st.dataframe(
 # ============================================================
 # V2 HISTORICAL UI
 # ============================================================
+
+# ============================================================
+# MODEL & DATA INFORMATION
+# ============================================================
+
 st.divider()
 
-st.header(
-    "🧬 Anchoveta Observation Dataset"
-)
+with st.expander(
+    "🔬 Model & Data Information",
+    expanded=False
+):
+    st.markdown(
+        """
+**Training data**
 
-historical_raw, historical_source = (
-    read_historical_source()
-)
+- 2,234 historical IMARPE records
+- 544 anchoveta detections
+- 1,690 non-detections
+- 20 historical surveys
+- Production dataset period: 1994–2010
 
-if historical_raw is None:
+**Environmental inputs**
 
-    st.warning(
-        "No repository-managed anchoveta observation dataset is available. "
-        "Add a traceable dataset as data/anchoveta_observations.csv. "
-        "E-AWARE will not create fake fish records."
+- Copernicus Marine — temperature and salinity
+- Copernicus Marine — dissolved oxygen
+- Copernicus climatology — SST anomaly
+- GEBCO — seafloor depth
+
+**Habitat model**
+
+- Model: **Validated Logistic Regression**
+- Uses 7 environmental/seasonal predictors
+- Output: **Habitat Suitability Index (HSI)**
+- HSI is habitat ranking, not fish-presence probability
+
+**Safety fallback**
+
+If current ocean conditions are outside the historical ML
+training range, the ML result is withheld and E-AWARE uses the
+**Literature-based HSI** instead.
+"""
     )
 
-else:
-
-    dataset_descriptor = describe_observation_dataset(
-        historical_raw,
-        historical_source
-    )
-
-    st.caption(
-        f"Repository file: **{historical_source}**"
-    )
-
-    st.info(
-        f"**Dataset source:** {dataset_descriptor['source_label']}  \n"
-        f"**Dataset role:** {dataset_descriptor['dataset_role']}"
-    )
-
-    try:
-
-        detected_presence = find_alias(
-            historical_raw.columns,
-            "presence"
-        )
-
-        detected_abundance = find_alias(
-            historical_raw.columns,
-            "abundance"
-        )
-
-        abundance_zero_is_absence = False
-
-        if (
-            detected_presence is None
-            and
-            detected_abundance is not None
-        ):
-
-            st.warning(
-                "This file has an abundance field but no explicit "
-                "presence/absence field. Positive abundance can confirm "
-                "presence, but zero abundance is not automatically treated "
-                "as surveyed absence."
-            )
-
-            abundance_zero_is_absence = st.checkbox(
-                "Dataset documentation confirms that abundance = 0 represents a genuine surveyed absence/non-detection",
-                value=False,
-                help=(
-                    "Enable this only when the survey methodology explicitly "
-                    "supports interpreting zero abundance as an absence. "
-                    "Do not enable it for ordinary presence-only occurrence data."
-                )
-            )
-
-        historical, meta = (
-            standardise_historical_observations(
-                historical_raw,
-                abundance_zero_is_absence=
-                    abundance_zero_is_absence
-            )
-        )
-
-        st.subheader(
-            "Observation Ingestion & Validation"
-        )
-
-        cols = st.columns(
-            5
-        )
-
-        cols[0].metric(
-            "Raw Rows",
-            f"{meta['raw_rows']:,}"
-        )
-
-        cols[1].metric(
-            "Usable Rows",
-            f"{meta['usable_rows']:,}"
-        )
-
-        cols[2].metric(
-            "Presence Known",
-            f"{meta['presence_known_rows']:,}"
-        )
-
-        cols[3].metric(
-            "Inside E-AWARE Area",
-            f"{meta['study_area_rows']:,}"
-        )
-
-        cols[4].metric(
-            "Target Ready",
-            (
-                "Yes"
-                if meta[
-                    "training_ready"
-                ]
-                else
-                "No"
-            )
-        )
-
-        st.caption(
-            f"Presence handling: "
-            f"{meta['presence_source']}"
-        )
-
-        st.caption(
-            f"Target method: **{meta['target_method']}** | "
-            f"Absence semantics verified: "
-            f"**{'Yes' if meta['target_absence_verified'] else 'No'}**"
-        )
-
-        mapping_rows = [
-            {
-                "E-AWARE field":
-                    k,
-
-                "Detected source column":
-                    (
-                        v
-                        if v is not None
-                        else
-                        "Not detected"
-                    )
-            }
-
-            for k, v in meta[
-                "mapping"
-            ].items()
-        ]
-
-        with st.expander(
-            "Detected column mapping"
-        ):
-
-            st.dataframe(
-                pd.DataFrame(
-                    mapping_rows
-                ),
-                width="stretch",
-                hide_index=True
-            )
-
-        st.subheader(
-            "Observation Data Quality Control"
-        )
-
-        observation_qc = observation_qc_audit(
-            historical,
-            meta
-        )
-
-        qc_cols = st.columns(
-            4
-        )
-
-        qc_cols[0].metric(
-            "Presence",
-            f"{meta['presence_rows']:,}"
-        )
-
-        qc_cols[1].metric(
-            "Absence",
-            f"{meta['absence_rows']:,}"
-        )
-
-        qc_cols[2].metric(
-            "Duplicates Flagged",
-            f"{len(observation_qc['duplicates']):,}"
-        )
-
-        qc_cols[3].metric(
-            "Surveys / Cruises",
-            (
-                f"{observation_qc['survey_count']:,}"
-                if observation_qc['survey_count']
-                else
-                "Not available"
-            )
-        )
-
-        if meta[
-            "training_ready"
-        ]:
-            st.success(
-                observation_qc[
-                    "status"
-                ]
-            )
-        else:
-            st.warning(
-                observation_qc[
-                    "status"
-                ]
-            )
-
-        with st.expander(
-            "Open observation QC details",
-            expanded=False
-        ):
-
-            st.dataframe(
-                observation_qc[
-                    "summary"
-                ],
-                width="stretch",
-                hide_index=True
-            )
-
-            c1, c2 = st.columns(
-                2
-            )
-
-            with c1:
-                st.markdown(
-                    "**Target class balance**"
-                )
-                st.dataframe(
-                    observation_qc[
-                        "class_balance"
-                    ],
-                    width="stretch",
-                    hide_index=True
-                )
-
-            with c2:
-                st.markdown(
-                    "**Seasonal distribution**"
-                )
-                st.dataframe(
-                    observation_qc[
-                        "season_counts"
-                    ],
-                    width="stretch",
-                    hide_index=True
-                )
-
-            st.markdown(
-                "**Observations by year**"
-            )
-            st.dataframe(
-                observation_qc[
-                    "year_counts"
-                ],
-                width="stretch",
-                hide_index=True
-            )
-
-            if not observation_qc[
-                "duplicates"
-            ].empty:
-                st.markdown(
-                    "**Duplicate records requiring review**"
-                )
-                st.dataframe(
-                    observation_qc[
-                        "duplicates"
-                    ],
-                    width="stretch",
-                    hide_index=True
-                )
-
-            st.download_button(
-                "⬇️ Download observation QC summary",
-                data=
-                    observation_qc[
-                        "summary"
-                    ]
-                    .to_csv(
-                        index=False
-                    )
-                    .encode(
-                        "utf-8"
-                    ),
-                file_name=
-                    "eaware_v2_step3_observation_qc.csv",
-                mime=
-                    "text/csv"
-            )
-
-        st.subheader(
-            "Historical Environmental Matching"
-        )
-
-        st.write(
-            "Each selected observation is matched to daily historical "
-            "Copernicus physics and biogeochemistry at the same date "
-            "and nearest grid location. GEBCO depth, coastline distance "
-            "and cyclic month features are added independently. "
-            "No HSI score or machine-learning prediction is created here."
-        )
-
-        pre1993 = int(
-            (
-                pd.to_datetime(
-                    historical[
-                        "date"
-                    ]
-                )
-                <
-                HISTORICAL_COPERNICUS_START
-            ).sum()
-        )
-
-        if pre1993:
-
-            st.info(
-                f"{pre1993:,} observation(s) are before "
-                "1 January 1993 and will be labelled as "
-                "having no Copernicus historical match."
-            )
-
-        scope = st.radio(
-            "Matching scope",
-            [
-                "Current E-AWARE study area",
-                "All validated observations"
-            ],
-            horizontal=True
-        )
-
-        pool = (
-            historical[
-                historical[
-                    "within_eaware_study_area"
-                ]
-            ].copy()
-
-            if scope
-            ==
-            "Current E-AWARE study area"
-
-            else
-
-            historical.copy()
-        )
-
-        if pool.empty:
-
-            st.warning(
-                "There are no validated observations "
-                "in the selected matching scope."
-            )
-
-        else:
-
-            limit_options = [
-                10,
-                25,
-                50,
-                100,
-                250
-            ]
-
-            max_rows = st.selectbox(
-                "Maximum observations to match in this Streamlit run",
-                limit_options,
-                index=2
-            )
-
-            if len(
-                pool
-            ) > max_rows:
-
-                st.caption(
-                    f"{len(pool):,} observations are available; "
-                    f"this run will match the first {max_rows:,} "
-                    "after sorting by date. Large archives should "
-                    "be batch-processed outside the interactive "
-                    "dashboard later."
-                )
-
-            selected_hist = (
-                pool
-                .sort_values(
-                    [
-                        "date",
-                        "source_row"
-                    ]
-                )
-                .head(
-                    max_rows
-                )
-                .copy()
-            )
-
-            if st.button(
-                "🔗 Match Historical Environmental Predictors",
-                type="primary",
-                width="stretch"
-            ):
-
-                with st.status(
-                    "Matching historical observations "
-                    "to environmental data...",
-                    expanded=True
-                ) as hist_status:
-
-                    hist_status.write(
-                        "Checking dates and Copernicus historical coverage..."
-                    )
-
-                    matched = (
-                        match_historical_environment(
-                            selected_hist
-                        )
-                    )
-
-                    st.session_state[
-                        "historical_matched"
-                    ] = matched
-
-                    hist_status.update(
-                        label=
-                            "✅ Historical environmental matching complete",
-                        state=
-                            "complete",
-                        expanded=
-                            False
-                    )
-
-            matched = st.session_state.get(
-                "historical_matched"
-            )
-
-            if (
-                isinstance(
-                    matched,
-                    pd.DataFrame
-                )
-                and
-                not matched.empty
-            ):
-
-                matched_count = int(
-                    (
-                        matched[
-                            "match_status"
-                        ]
-                        ==
-                        "Matched"
-                    ).sum()
-                )
-
-                unmatched_count = int(
-                    len(
-                        matched
-                    )
-                    -
-                    matched_count
-                )
-
-                complete_predictors = int(
-                    (
-                        (
-                            matched[
-                                "match_status"
-                            ]
-                            ==
-                            "Matched"
-                        )
-                        &
-                        matched[
-                            [
-                                "historical_sst_c",
-                                "historical_salinity_psu",
-                                "historical_surface_o2_ml_l",
-                                "historical_water_depth_m",
-                                "historical_distance_coast_km"
-                            ]
-                        ]
-                        .notna()
-                        .all(
-                            axis=1
-                        )
-                    ).sum()
-                )
-
-                cols = st.columns(
-                    4
-                )
-
-                cols[0].metric(
-                    "Selected Observations",
-                    f"{len(matched):,}"
-                )
-
-                cols[1].metric(
-                    "Copernicus Matched",
-                    f"{matched_count:,}"
-                )
-
-                cols[2].metric(
-                    "Unmatched",
-                    f"{unmatched_count:,}"
-                )
-
-                cols[3].metric(
-                    "Core Predictors Complete",
-                    f"{complete_predictors:,}"
-                )
-
-                display_cols = [
-                    "source_row",
-                    "date",
-                    "lat",
-                    "lon",
-                    "survey_id",
-                    "presence",
-                    "abundance",
-                    "historical_sst_c",
-                    "historical_salinity_psu",
-                    "historical_surface_o2_ml_l",
-                    "historical_water_depth_m",
-                    "historical_distance_coast_km",
-                    "historical_distance_coast_nm",
-                    "historical_oxycline_m",
-                    "physics_match_distance_km",
-                    "bgc_match_distance_km",
-                    "month_number",
-                    "austral_season",
-                    "month_sin",
-                    "month_cos",
-                    "match_status",
-                ]
-
-                st.dataframe(
-                    matched[
-                        display_cols
-                    ],
-                    width="stretch",
-                    hide_index=True
-                )
-
-                st.download_button(
-                    "⬇️ Download matched training-table candidate",
-                    data=
-                        matched
-                        .to_csv(
-                            index=False
-                        )
-                        .encode(
-                            "utf-8"
-                        ),
-                    file_name=
-                        "eaware_v2_step2_matched_historical_environment.csv",
-                    mime=
-                        "text/csv",
-                )
-
-                if matched_count > 0:
-
-                    st.success(
-                        "Historical environmental matching has created a historical "
-                        "observation + environmental predictor table. "
-                        "The next stage is quality control and predictor "
-                        "completeness checking before any model training."
-                    )
-
-                else:
-
-                    st.warning(
-                        "No selected observations were successfully matched. "
-                        "Review dates, coordinates and the status column "
-                        "before continuing."
-                    )
-
-                st.subheader(
-                    "Matched Training-Table Quality Control"
-                )
-
-                matched_qc = matched_qc_audit(
-                    matched,
-                    meta
-                )
-
-                candidate_rows = matched_qc[
-                    "candidate_rows"
-                ]
-
-                qc_cols = st.columns(
-                    4
-                )
-
-                qc_cols[0].metric(
-                    "Core Candidate Rows",
-                    f"{len(candidate_rows):,}"
-                )
-
-                qc_cols[1].metric(
-                    "Candidate Presence",
-                    f"{matched_qc['candidate_presence']:,}"
-                )
-
-                qc_cols[2].metric(
-                    "Candidate Absence",
-                    f"{matched_qc['candidate_absence']:,}"
-                )
-
-                qc_cols[3].metric(
-                    "Candidate Completeness",
-                    (
-                        f"{100.0 * len(candidate_rows) / len(matched):.1f}%"
-                        if len(matched)
-                        else
-                        "0.0%"
-                    )
-                )
-
-                if (
-                    meta[
-                        "target_absence_verified"
-                    ]
-                    and
-                    matched_qc[
-                        "candidate_presence"
-                    ]
-                    >
-                    0
-                    and
-                    matched_qc[
-                        "candidate_absence"
-                    ]
-                    >
-                    0
-                ):
-                    st.success(
-                        matched_qc[
-                            "status"
-                        ]
-                    )
-                else:
-                    st.warning(
-                        matched_qc[
-                            "status"
-                        ]
-                    )
-
-                st.dataframe(
-                    matched_qc[
-                        "summary"
-                    ],
-                    width="stretch",
-                    hide_index=True
-                )
-
-                with st.expander(
-                    "Predictor completeness and QC-annotated rows",
-                    expanded=False
-                ):
-
-                    st.markdown(
-                        "**Predictor completeness**"
-                    )
-
-                    st.dataframe(
-                        matched_qc[
-                            "predictor_completeness"
-                        ],
-                        width="stretch",
-                        hide_index=True
-                    )
-
-                    st.markdown(
-                        "**QC-annotated matched rows**"
-                    )
-
-                    st.dataframe(
-                        matched_qc[
-                            "annotated"
-                        ],
-                        width="stretch",
-                        hide_index=True
-                    )
-
-                st.download_button(
-                    "⬇️ Download data-quality QC summary",
-                    data=
-                        matched_qc[
-                            "summary"
-                        ]
-                        .to_csv(
-                            index=False
-                        )
-                        .encode(
-                            "utf-8"
-                        ),
-                    file_name=
-                        "eaware_v2_step3_matched_qc_summary.csv",
-                    mime=
-                        "text/csv"
-                )
-
-                st.download_button(
-                    "⬇️ Download QC-filtered core training candidates",
-                    data=
-                        candidate_rows
-                        .to_csv(
-                            index=False
-                        )
-                        .encode(
-                            "utf-8"
-                        ),
-                    file_name=
-                        "eaware_v2_step3_training_candidates.csv",
-                    mime=
-                        "text/csv",
-                    disabled=
-                        candidate_rows.empty
-                )
-
-    except Exception as historical_error:
-
-        st.error(
-            "Historical observation processing failed."
-        )
-
-        st.code(
-            str(
-                historical_error
-            )
-        )
-
-
-# ============================================================
-# FISHER ADVISORY / SMS PREVIEW
-# ============================================================
 st.subheader(
-    "📱 Fisher SMS Advisory Preview"
+    "📱 Fisheries Advisory"
 )
 
 best_hsi = float(
@@ -10619,7 +9960,7 @@ st.caption(
 # TRANSPARENCY / STATUS
 # ============================================================
 st.subheader(
-    "📊 Data Sources & Transparency"
+    "📊 Data Sources"
 )
 
 source_table = pd.DataFrame(
