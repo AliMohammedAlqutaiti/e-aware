@@ -8280,9 +8280,8 @@ st.pydeck_chart(
 # ============================================================
 # OXYCLINE STATUS
 # ============================================================
-st.subheader(
-    "🫧 Seabed-Constrained Oxycline"
-)
+
+st.subheader("🫧 Oxygen Depth")
 
 raw_oxycline = best.get(
     "raw_oxycline_depth_m",
@@ -8309,153 +8308,154 @@ local_gap = best.get(
     np.nan
 )
 
-cols = st.columns(
-    4
-)
+cols = st.columns(2)
 
 cols[0].metric(
-    "Raw Full-Profile Oxycline",
+    "Oxycline Depth",
     (
-        f"{raw_oxycline:.1f} m"
-        if pd.notna(
-            raw_oxycline
-        )
+        f"{local_oxycline:.0f} m"
+        if pd.notna(local_oxycline)
         else
         "Not detected"
     )
 )
 
 cols[1].metric(
-    "Local GEBCO Water Depth",
-    f"{best['water_depth_m']:.1f} m"
+    "Seafloor Depth",
+    f"{best['water_depth_m']:.0f} m"
 )
 
-cols[2].metric(
-    "Local Oxycline",
-    (
-        f"{local_oxycline:.1f} m"
-        if pd.notna(
-            local_oxycline
+st.caption(
+    "The oxycline is the depth where dissolved oxygen drops sharply. "
+    "It is shown as environmental context and is not directly weighted "
+    "in the operational HSI."
+)
+
+with st.expander(
+    "🔬 Oxygen profile details",
+    expanded=False
+):
+    cols = st.columns(3)
+
+    cols[0].metric(
+        "Raw Profile Oxycline",
+        (
+            f"{raw_oxycline:.1f} m"
+            if pd.notna(raw_oxycline)
+            else
+            "Not detected"
         )
-        else
-        "Not reached"
     )
-)
 
-cols[3].metric(
-    "HSI Weight",
-    "Not included"
-)
-
-cols = st.columns(
-    3
-)
-
-cols[0].metric(
-    "Deepest BGC Level Used",
-    (
-        f"{local_maximum:.1f} m"
-        if pd.notna(
-            local_maximum
-        )
-        else
-        "Unavailable"
-    )
-)
-
-cols[1].metric(
-    "BGC Levels Inside Water Column",
-    (
-        f"{int(local_levels)}"
-        if pd.notna(
-            local_levels
-        )
-        else
-        "Unavailable"
-    )
-)
-
-cols[2].metric(
-    "Unsampled Gap to Seabed",
-    (
-        f"{local_gap:.1f} m"
-        if pd.notna(
-            local_gap
-        )
-        else
-        "Unavailable"
-    )
-)
-
-st.info(
-    str(
-        best.get(
-            "oxycline_validation_status",
+    cols[1].metric(
+        "Deepest Oxygen Data",
+        (
+            f"{local_maximum:.1f} m"
+            if pd.notna(local_maximum)
+            else
             "Unavailable"
         )
     )
-)
+
+    cols[2].metric(
+        "Oxygen Profile Levels",
+        (
+            f"{int(local_levels)}"
+            if pd.notna(local_levels)
+            else
+            "Unavailable"
+        )
+    )
+
+    st.metric(
+        "Unsampled Gap to Seabed",
+        (
+            f"{local_gap:.1f} m"
+            if pd.notna(local_gap)
+            else
+            "Unavailable"
+        )
+    )
+
+    st.caption(
+        f"Profile validation: "
+        f"{best.get('oxycline_validation_status', 'Unavailable')}"
+    )
 
 
 # ============================================================
 # HIGHEST HABITAT / FORECAST SHIFT
 # ============================================================
-st.subheader(
-    "📍 Highest HSI Cell Within Configured Corridor"
-)
 
-cols = st.columns(
-    5
-)
+# ============================================================
+# BEST HABITAT ZONE
+# ============================================================
+
+st.subheader("📍 Best Habitat Zone")
+
+cols = st.columns(4)
 
 cols[0].metric(
-    "Latitude",
-    f"{best['lat']:.4f}"
+    "Suitability",
+    hsi_class(best["hsi"])
 )
 
 cols[1].metric(
-    "Longitude",
-    f"{best['lon']:.4f}"
+    "HSI",
+    f"{float(best['hsi']):.2f}"
 )
 
 cols[2].metric(
-    "Suitability",
-    hsi_class(
-        best[
-            "hsi"
-        ]
-    )
+    "Best Zone",
+    f"{best['lat']:.4f}, {best['lon']:.4f}"
 )
 
 cols[3].metric(
-    "GEBCO Seafloor Depth",
-    f"{best['water_depth_m']:.0f} m"
-)
-
-cols[4].metric(
-    "Coast Distance",
+    "Distance from Coast",
     (
-        f"{best['distance_coast_km']:.2f} km / "
-        f"{best['distance_coast_nm']:.2f} nm"
+        f"{best['distance_coast_km']:.1f} km / "
+        f"{best['distance_coast_nm']:.1f} nm"
     )
 )
 
 st.caption(
-    "This is the grid cell with the highest relative HSI inside the "
-    "configured E-AWARE corridor. GEBCO depth is seabed bathymetry beneath "
-    "the cell and is not a predicted anchoveta swimming or fishing depth."
+    "This is the highest-suitability grid cell in the E-AWARE corridor. "
+    "It represents a higher-probability habitat zone, not an exact fish location."
 )
 
-st.subheader(
-    "🐟 Literature-Based HSI Reference Envelope"
-)
+with st.expander(
+    "📍 Zone details",
+    expanded=False
+):
+    st.metric(
+        "Seafloor Depth",
+        f"{best['water_depth_m']:.0f} m"
+    )
 
-cols = st.columns(
-    4
-)
+    st.write(
+        f"**Latitude:** {best['lat']:.4f}"
+    )
+
+    st.write(
+        f"**Longitude:** {best['lon']:.4f}"
+    )
+
+    st.caption(
+        f"Operational model: "
+        f"{best.get('operational_model', 'E-AWARE operational HSI')}"
+    )
+
+
+# ============================================================
+# LITERATURE HABITAT REFERENCE
+# ============================================================
+
+st.subheader("🐟 Anchoveta Habitat Reference")
+
+cols = st.columns(3)
 
 cols[0].metric(
-    "Reference Temperature",
+    "Temperature",
     (
         f"{reference['temp_min']} – "
         f"{reference['temp_max']} °C"
@@ -8463,7 +8463,7 @@ cols[0].metric(
 )
 
 cols[1].metric(
-    "Reference Salinity",
+    "Salinity",
     (
         f"{reference['sal_min']} – "
         f"{reference['sal_max']} PSU"
@@ -8471,34 +8471,37 @@ cols[1].metric(
 )
 
 cols[2].metric(
-    "Reference Oxygen",
+    "Dissolved Oxygen",
     (
         f"{reference['oxygen_min']} – "
         f"{reference['oxygen_max']} mL/L"
     )
 )
 
-cols[3].metric(
-    "Season",
-    reference[
-        "season"
-    ]
+st.caption(
+    f"Literature reference for the current season: "
+    f"{reference['season']}."
 )
 
-# ============================================================
-# FORECAST-WIDE OPERATIONAL MODEL SELECTION
-#
-# IMPORTANT:
-# A habitat-shift calculation must use ONE consistent model
-# across the complete forecast period. Otherwise an apparent
-# centroid movement could simply be caused by switching models.
-#
-# Therefore:
-# - ML is used only if EVERY scored cell on EVERY forecast date
-#   is inside the validated Phase 2 ML domain.
-# - If any forecast date is out-of-domain, Literature HSI is
-#   used for the entire forecast period.
-# ============================================================
+with st.expander(
+    "📖 What do these ranges mean?",
+    expanded=False
+):
+    st.write(
+        "These ranges come from published anchoveta habitat research "
+        "and describe environmental conditions associated with suitable habitat."
+    )
+
+    st.write(
+        "E-AWARE uses the validated machine-learning HSI when current "
+        "conditions are inside the model's historical training domain."
+    )
+
+    st.write(
+        "When conditions fall outside that domain, the "
+        "Literature-based HSI becomes the operational fallback."
+    )
+
 
 forecast_prepared = {}
 
