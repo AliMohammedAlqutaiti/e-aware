@@ -9318,7 +9318,7 @@ training range, the ML result is withheld and E-AWARE uses the
     )
 
 st.subheader(
-    "📱 Fisheries Advisory"
+    "📧 Email Fisheries Advisory"
 )
 
 best_hsi = float(
@@ -9353,7 +9353,42 @@ best_zone_text = (
 )
 
 
-sms_message = f"""E-AWARE Fisheries Advisory
+# ============================================================
+# EMAIL ADVISORY SUMMARY
+# ============================================================
+
+cols = st.columns(4)
+
+cols[0].metric(
+    "Habitat",
+    hsi_class(best_hsi)
+)
+
+cols[1].metric(
+    "HSI",
+    f"{best_hsi:.2f}"
+)
+
+cols[2].metric(
+    "Habitat Shift",
+    direction_text
+)
+
+cols[3].metric(
+    "Model",
+    best.get(
+        "operational_model",
+        "E-AWARE HSI"
+    )
+)
+
+st.caption(
+    "E-AWARE generates an email fisheries advisory using the same "
+    "operational habitat result and forecast shown on the dashboard."
+)
+
+
+email_advisory_message = f"""E-AWARE Fisheries Advisory
 
 Date:
 {current_date}
@@ -9452,7 +9487,7 @@ if _eaware_os.environ.get("EAWARE_AUTOMATION_MODE") == "1":
             forecast_operational_model,
 
         "advisory":
-            sms_message,
+            email_advisory_message,
     }
 
     _EawarePath(
@@ -9467,8 +9502,8 @@ if _eaware_os.environ.get("EAWARE_AUTOMATION_MODE") == "1":
 
 
 st.text_area(
-    "Example SMS advisory",
-    sms_message,
+    "Email advisory preview",
+    email_advisory_message,
     height=680
 )
 
@@ -9476,404 +9511,514 @@ st.text_area(
 # REAL EMAIL ADVISORY DELIVERY — GMAIL SMTP
 # ============================================================
 
-st.subheader(
-    "📧 Email Advisory Delivery"
-)
+with st.expander("📤 Send current advisory by email", expanded=False):
 
-st.caption(
-    "Enter an email address to receive the current E-AWARE "
-    "fisheries advisory. SMS/GSM remains a proposed future "
-    "implementation."
-)
-
-gmail_configured = (
-    "GMAIL_SENDER" in st.secrets
-    and
-    "GMAIL_APP_PASSWORD" in st.secrets
-)
-
-recipient_email = st.text_input(
-    "Recipient email address",
-    placeholder="name@example.com",
-    key="eaware_recipient_email"
-)
-
-if not gmail_configured:
-
-    st.warning(
-        "Email delivery is unavailable in this local environment. The deployed backend is configured separately."
+    st.caption(
+        "Enter an email address to receive the current E-AWARE "
+        "fisheries advisory. SMS/GSM remains a proposed future "
+        "implementation."
     )
 
+    gmail_configured = (
+        "GMAIL_SENDER" in st.secrets
+        and
+        "GMAIL_APP_PASSWORD" in st.secrets
+    )
 
-else:
+    recipient_email = st.text_input(
+        "Recipient email address",
+        placeholder="name@example.com",
+        key="eaware_recipient_email"
+    )
 
-    if st.button(
-        "📧 Send Current E-AWARE Advisory",
-        type="primary",
-        width="stretch"
-    ):
+    if not gmail_configured:
 
-        try:
-
-            import html
-            import re
-            import smtplib
-
-            from email.message import EmailMessage
+        st.warning(
+            "Email delivery is unavailable in this local environment. The deployed backend is configured separately."
+        )
 
 
-            recipient_email = recipient_email.strip()
+    else:
 
-            email_pattern = (
-                r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
-            )
+        if st.button(
+            "📧 Send Current E-AWARE Advisory",
+            type="primary",
+            width="stretch"
+        ):
 
-            if not re.match(
-                email_pattern,
-                recipient_email
-            ):
+            try:
 
-                st.error(
-                    "Please enter a valid email address."
+                import html
+                import re
+                import smtplib
+
+                from email.message import EmailMessage
+
+
+                recipient_email = recipient_email.strip()
+
+                email_pattern = (
+                    r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
                 )
 
-            else:
+                if not re.match(
+                    email_pattern,
+                    recipient_email
+                ):
 
-                sender_email = str(
-                    st.secrets[
-                        "GMAIL_SENDER"
-                    ]
-                ).strip()
+                    st.error(
+                        "Please enter a valid email address."
+                    )
 
-                app_password = str(
-                    st.secrets[
-                        "GMAIL_APP_PASSWORD"
-                    ]
-                ).replace(
-                    " ",
-                    ""
-                ).strip()
+                else:
 
-                safe_message = html.escape(
-                    sms_message
-                )
+                    sender_email = str(
+                        st.secrets[
+                            "GMAIL_SENDER"
+                        ]
+                    ).strip()
 
-                email_html = f"""
-                <div style="
-                    font-family: Arial, sans-serif;
-                    max-width: 700px;
-                    margin: auto;
-                    color: #222;
-                ">
+                    app_password = str(
+                        st.secrets[
+                            "GMAIL_APP_PASSWORD"
+                        ]
+                    ).replace(
+                        " ",
+                        ""
+                    ).strip()
 
-                    <h1>
-                        E-AWARE Fisheries Advisory
-                    </h1>
+                    safe_message = html.escape(
+                        email_advisory_message
+                    )
 
-                    <p style="color:#666;">
-                        El Niño Adaptive Fisheries Intelligence
-                    </p>
-
+                    email_html = f"""
                     <div style="
-                        background:#f4f4f4;
-                        border-radius:12px;
-                        padding:22px;
-                        margin-top:20px;
+                        font-family: Arial, sans-serif;
+                        max-width: 700px;
+                        margin: auto;
+                        color: #222;
                     ">
 
-                        <pre style="
-                            white-space:pre-wrap;
-                            font-family:Arial, sans-serif;
-                            line-height:1.6;
-                            margin:0;
-                        ">{safe_message}</pre>
+                        <h1>
+                            E-AWARE Fisheries Advisory
+                        </h1>
+
+                        <p style="color:#666;">
+                            El Niño Adaptive Fisheries Intelligence
+                        </p>
+
+                        <div style="
+                            background:#f4f4f4;
+                            border-radius:12px;
+                            padding:22px;
+                            margin-top:20px;
+                        ">
+
+                            <pre style="
+                                white-space:pre-wrap;
+                                font-family:Arial, sans-serif;
+                                line-height:1.6;
+                                margin:0;
+                            ">{safe_message}</pre>
+
+                        </div>
+
+                        <p style="
+                            margin-top:24px;
+                            font-size:13px;
+                            color:#666;
+                        ">
+                            E-AWARE provides habitat decision support only.
+                            It does not provide legal fishing permission,
+                            exact fish locations or navigation instructions.
+                            Current PRODUCE regulations must be verified
+                            before fishing.
+                        </p>
 
                     </div>
+                    """
 
-                    <p style="
-                        margin-top:24px;
-                        font-size:13px;
-                        color:#666;
-                    ">
-                        E-AWARE provides habitat decision support only.
-                        It does not provide legal fishing permission,
-                        exact fish locations or navigation instructions.
-                        Current PRODUCE regulations must be verified
-                        before fishing.
-                    </p>
+                    msg = EmailMessage()
 
-                </div>
-                """
-
-                msg = EmailMessage()
-
-                msg[
-                    "Subject"
-                ] = (
-                    f"E-AWARE Fisheries Advisory — "
-                    f"{current_date}"
-                )
-
-                msg[
-                    "From"
-                ] = (
-                    f"E-AWARE <{sender_email}>"
-                )
-
-                msg[
-                    "To"
-                ] = recipient_email
-
-                msg.set_content(
-                    sms_message
-                )
-
-                msg.add_alternative(
-                    email_html,
-                    subtype="html"
-                )
-
-                with smtplib.SMTP(
-                    "smtp.gmail.com",
-                    587,
-                    timeout=30
-                ) as smtp:
-
-                    smtp.ehlo()
-                    smtp.starttls()
-                    smtp.ehlo()
-
-                    smtp.login(
-                        sender_email,
-                        app_password
+                    msg[
+                        "Subject"
+                    ] = (
+                        f"E-AWARE Fisheries Advisory — "
+                        f"{current_date}"
                     )
 
-                    smtp.send_message(
-                        msg
+                    msg[
+                        "From"
+                    ] = (
+                        f"E-AWARE <{sender_email}>"
                     )
 
-                st.success(
-                    "✅ E-AWARE advisory sent successfully to "
-                    f"{recipient_email}"
-                )
+                    msg[
+                        "To"
+                    ] = recipient_email
 
-        except Exception as exc:
+                    msg.set_content(
+                        email_advisory_message
+                    )
 
-            st.error(
-                "Email delivery failed. "
-                f"{type(exc).__name__}: {exc}"
-            )
+                    msg.add_alternative(
+                        email_html,
+                        subtype="html"
+                    )
 
+                    with smtplib.SMTP(
+                        "smtp.gmail.com",
+                        587,
+                        timeout=30
+                    ) as smtp:
 
-# ============================================================
-# DAILY ADVISORY SUBSCRIPTION — OPERATIONAL MODE
-# ============================================================
+                        smtp.ehlo()
+                        smtp.starttls()
+                        smtp.ehlo()
 
+                        smtp.login(
+                            sender_email,
+                            app_password
+                        )
 
-def send_subscription_confirmation_email(recipient_email):
-    """Send an immediate confirmation after a successful subscription."""
-    from email.message import EmailMessage
-    import smtplib
+                        smtp.send_message(
+                            msg
+                        )
 
-    sender = str(st.secrets.get("GMAIL_SENDER", "")).strip()
-    app_password = str(st.secrets.get("GMAIL_APP_PASSWORD", "")).strip()
+                    st.success(
+                        "✅ E-AWARE advisory sent successfully to "
+                        f"{recipient_email}"
+                    )
 
-    if not sender or not app_password:
-        raise RuntimeError(
-            "Gmail credentials are not configured."
-        )
-
-    message = EmailMessage()
-
-    message["From"] = sender
-    message["To"] = recipient_email
-    message["Subject"] = "E-AWARE Daily Advisory Subscription Confirmed"
-
-    message.set_content(
-        """E-AWARE Daily Advisory Subscription Confirmed
-
-Your email address has been successfully registered for the E-AWARE daily fisheries advisory.
-
-You will receive the latest E-AWARE advisory automatically each day at approximately 4:00 AM Peru time.
-
-The advisory provides decision-support information including:
-- Anchoveta habitat suitability
-- Environmental conditions
-- Predicted suitable-habitat shift
-- Coastal distance information
-- Ecological guidance
-
-Please check official fishing restrictions and safety information before departure.
-
-E-AWARE
-El Niño Adaptive Fisheries Intelligence
-
-Decision-support research prototype.
-"""
-    )
-
-    with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as smtp:
-        smtp.ehlo()
-        smtp.starttls()
-        smtp.ehlo()
-        smtp.login(sender, app_password)
-        smtp.send_message(message)
-
-
-
-def send_unsubscription_confirmation_email(recipient_email):
-    """Send an immediate confirmation after a successful unsubscribe."""
-    from email.message import EmailMessage
-    import smtplib
-
-    sender = str(st.secrets.get("GMAIL_SENDER", "")).strip()
-    app_password = str(st.secrets.get("GMAIL_APP_PASSWORD", "")).strip()
-
-    if not sender or not app_password:
-        raise RuntimeError(
-            "Gmail credentials are not configured."
-        )
-
-    message = EmailMessage()
-
-    message["From"] = sender
-    message["To"] = recipient_email
-    message["Subject"] = "E-AWARE Daily Advisory Unsubscription Confirmed"
-
-    message.set_content(
-        """E-AWARE Daily Advisory Unsubscription Confirmed
-
-Your email address has been successfully removed from the active E-AWARE daily advisory subscription list.
-
-You will no longer receive the automatic 4:00 AM Peru-time daily advisory.
-
-You may subscribe again at any time through the E-AWARE dashboard.
-
-E-AWARE
-El Niño Adaptive Fisheries Intelligence
-
-Decision-support research prototype.
-"""
-    )
-
-    with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as smtp:
-        smtp.ehlo()
-        smtp.starttls()
-        smtp.ehlo()
-        smtp.login(sender, app_password)
-        smtp.send_message(message)
-
-
-st.subheader(
-    "🔔 Daily Advisory Subscription"
-)
-
-st.caption(
-    "Scheduled delivery: subscribe once to receive the E-AWARE "
-    "daily advisory automatically. The prototype backend is "
-    "scheduled for 4:00 AM Peru time."
-)
-
-supabase_configured = (
-    "SUPABASE_URL" in st.secrets
-    and
-    "SUPABASE_SECRET_KEY" in st.secrets
-)
-
-subscription_email = st.text_input(
-    "Email for daily advisory",
-    placeholder="name@example.com",
-    key="eaware_subscription_email"
-)
-
-subscription_cols = st.columns(2)
-
-if not supabase_configured:
-
-    st.warning(
-        "Daily subscription management is unavailable in this local environment. The deployed backend is configured separately."
-    )
-
-
-else:
-
-    if subscription_cols[0].button(
-        "🔔 Subscribe to Daily Advisory",
-        width="stretch"
-    ):
-
-        try:
-
-            import re
-            from datetime import datetime, timezone
-            from supabase import create_client
-
-            clean_email = (
-                subscription_email
-                .strip()
-                .lower()
-            )
-
-            email_pattern = (
-                r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
-            )
-
-            if not re.match(
-                email_pattern,
-                clean_email
-            ):
+            except Exception as exc:
 
                 st.error(
-                    "Please enter a valid email address."
+                    "Email delivery failed. "
+                    f"{type(exc).__name__}: {exc}"
                 )
 
-            else:
 
-                supabase_client = create_client(
-                    str(
-                        st.secrets[
-                            "SUPABASE_URL"
-                        ]
-                    ),
-                    str(
-                        st.secrets[
-                            "SUPABASE_SECRET_KEY"
-                        ]
-                    )
+    # ============================================================
+    # DAILY ADVISORY SUBSCRIPTION — OPERATIONAL MODE
+    # ============================================================
+
+
+    def send_subscription_confirmation_email(recipient_email):
+        """Send an immediate confirmation after a successful subscription."""
+        from email.message import EmailMessage
+        import smtplib
+
+        sender = str(st.secrets.get("GMAIL_SENDER", "")).strip()
+        app_password = str(st.secrets.get("GMAIL_APP_PASSWORD", "")).strip()
+
+        if not sender or not app_password:
+            raise RuntimeError(
+                "Gmail credentials are not configured."
+            )
+
+        message = EmailMessage()
+
+        message["From"] = sender
+        message["To"] = recipient_email
+        message["Subject"] = "E-AWARE Daily Advisory Subscription Confirmed"
+
+        message.set_content(
+            """E-AWARE Daily Advisory Subscription Confirmed
+
+    Your email address has been successfully registered for the E-AWARE daily fisheries advisory.
+
+    You will receive the latest E-AWARE advisory automatically each day at approximately 4:00 AM Peru time.
+
+    The advisory provides decision-support information including:
+    - Anchoveta habitat suitability
+    - Environmental conditions
+    - Predicted suitable-habitat shift
+    - Coastal distance information
+    - Ecological guidance
+
+    Please check official fishing restrictions and safety information before departure.
+
+    E-AWARE
+    El Niño Adaptive Fisheries Intelligence
+
+    Decision-support research prototype.
+    """
+        )
+
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.ehlo()
+            smtp.login(sender, app_password)
+            smtp.send_message(message)
+
+
+
+    def send_unsubscription_confirmation_email(recipient_email):
+        """Send an immediate confirmation after a successful unsubscribe."""
+        from email.message import EmailMessage
+        import smtplib
+
+        sender = str(st.secrets.get("GMAIL_SENDER", "")).strip()
+        app_password = str(st.secrets.get("GMAIL_APP_PASSWORD", "")).strip()
+
+        if not sender or not app_password:
+            raise RuntimeError(
+                "Gmail credentials are not configured."
+            )
+
+        message = EmailMessage()
+
+        message["From"] = sender
+        message["To"] = recipient_email
+        message["Subject"] = "E-AWARE Daily Advisory Unsubscription Confirmed"
+
+        message.set_content(
+            """E-AWARE Daily Advisory Unsubscription Confirmed
+
+    Your email address has been successfully removed from the active E-AWARE daily advisory subscription list.
+
+    You will no longer receive the automatic 4:00 AM Peru-time daily advisory.
+
+    You may subscribe again at any time through the E-AWARE dashboard.
+
+    E-AWARE
+    El Niño Adaptive Fisheries Intelligence
+
+    Decision-support research prototype.
+    """
+        )
+
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.ehlo()
+            smtp.login(sender, app_password)
+            smtp.send_message(message)
+
+
+with st.expander("🔔 Daily email subscription", expanded=False):
+
+    st.caption(
+        "Scheduled delivery: subscribe once to receive the E-AWARE "
+        "daily advisory automatically. The prototype backend is "
+        "scheduled for 4:00 AM Peru time."
+    )
+
+    supabase_configured = (
+        "SUPABASE_URL" in st.secrets
+        and
+        "SUPABASE_SECRET_KEY" in st.secrets
+    )
+
+    subscription_email = st.text_input(
+        "Email for daily advisory",
+        placeholder="name@example.com",
+        key="eaware_subscription_email"
+    )
+
+    subscription_cols = st.columns(2)
+
+    if not supabase_configured:
+
+        st.warning(
+            "Daily subscription management is unavailable in this local environment. The deployed backend is configured separately."
+        )
+
+
+    else:
+
+        if subscription_cols[0].button(
+            "🔔 Subscribe to Daily Advisory",
+            width="stretch"
+        ):
+
+            try:
+
+                import re
+                from datetime import datetime, timezone
+                from supabase import create_client
+
+                clean_email = (
+                    subscription_email
+                    .strip()
+                    .lower()
                 )
 
-                existing = (
-                    supabase_client
-                    .table(
-                        "eaware_subscribers"
-                    )
-                    .select(
-                        "id,email,active"
-                    )
-                    .eq(
-                        "email",
-                        clean_email
-                    )
-                    .execute()
+                email_pattern = (
+                    r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
                 )
 
-                now_iso = (
-                    datetime.now(
-                        timezone.utc
-                    ).isoformat()
+                if not re.match(
+                    email_pattern,
+                    clean_email
+                ):
+
+                    st.error(
+                        "Please enter a valid email address."
+                    )
+
+                else:
+
+                    supabase_client = create_client(
+                        str(
+                            st.secrets[
+                                "SUPABASE_URL"
+                            ]
+                        ),
+                        str(
+                            st.secrets[
+                                "SUPABASE_SECRET_KEY"
+                            ]
+                        )
+                    )
+
+                    existing = (
+                        supabase_client
+                        .table(
+                            "eaware_subscribers"
+                        )
+                        .select(
+                            "id,email,active"
+                        )
+                        .eq(
+                            "email",
+                            clean_email
+                        )
+                        .execute()
+                    )
+
+                    now_iso = (
+                        datetime.now(
+                            timezone.utc
+                        ).isoformat()
+                    )
+
+                    if existing.data:
+
+                        (
+                            supabase_client
+                            .table(
+                                "eaware_subscribers"
+                            )
+                            .update(
+                                {
+                                    "active": True,
+                                    "updated_at": now_iso,
+                                }
+                            )
+                            .eq(
+                                "email",
+                                clean_email
+                            )
+                            .execute()
+                        )
+
+                    else:
+
+                        (
+                            supabase_client
+                            .table(
+                                "eaware_subscribers"
+                            )
+                            .insert(
+                                {
+                                    "email": clean_email,
+                                    "active": True,
+                                    "updated_at": now_iso,
+                                }
+                            )
+                            .execute()
+                        )
+
+                    st.success(
+                        "✅ Subscribed successfully. "
+                        "This address is now registered for the "
+                        "daily E-AWARE advisory."
+                    )
+
+                    try:
+                        send_subscription_confirmation_email(
+                            clean_email
+                        )
+
+                        st.success(
+                            "📧 A subscription confirmation email "
+                            "has been sent."
+                        )
+
+                    except Exception as email_exc:
+                        st.warning(
+                            "The subscription was saved successfully, "
+                            "but the confirmation email could not be sent. "
+                            f"{type(email_exc).__name__}: {email_exc}"
+                        )
+
+            except Exception as exc:
+
+                st.error(
+                    "Subscription failed. "
+                    f"{type(exc).__name__}: {exc}"
                 )
 
-                if existing.data:
 
-                    (
+        if subscription_cols[1].button(
+            "🔕 Unsubscribe",
+            width="stretch"
+        ):
+
+            try:
+
+                import re
+                from datetime import datetime, timezone
+                from supabase import create_client
+
+                clean_email = (
+                    subscription_email
+                    .strip()
+                    .lower()
+                )
+
+                email_pattern = (
+                    r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+                )
+
+                if not re.match(
+                    email_pattern,
+                    clean_email
+                ):
+
+                    st.error(
+                        "Please enter a valid email address."
+                    )
+
+                else:
+
+                    supabase_client = create_client(
+                        str(
+                            st.secrets[
+                                "SUPABASE_URL"
+                            ]
+                        ),
+                        str(
+                            st.secrets[
+                                "SUPABASE_SECRET_KEY"
+                            ]
+                        )
+                    )
+
+                    result = (
                         supabase_client
                         .table(
                             "eaware_subscribers"
                         )
                         .update(
                             {
-                                "active": True,
-                                "updated_at": now_iso,
+                                "active": False,
+                                "updated_at":
+                                    datetime.now(
+                                        timezone.utc
+                                    ).isoformat(),
                             }
                         )
                         .eq(
@@ -9883,174 +10028,60 @@ else:
                         .execute()
                     )
 
-                else:
-
-                    (
-                        supabase_client
-                        .table(
-                            "eaware_subscribers"
-                        )
-                        .insert(
-                            {
-                                "email": clean_email,
-                                "active": True,
-                                "updated_at": now_iso,
-                            }
-                        )
-                        .execute()
-                    )
-
-                st.success(
-                    "✅ Subscribed successfully. "
-                    "This address is now registered for the "
-                    "daily E-AWARE advisory."
-                )
-
-                try:
-                    send_subscription_confirmation_email(
-                        clean_email
-                    )
-
-                    st.success(
-                        "📧 A subscription confirmation email "
-                        "has been sent."
-                    )
-
-                except Exception as email_exc:
-                    st.warning(
-                        "The subscription was saved successfully, "
-                        "but the confirmation email could not be sent. "
-                        f"{type(email_exc).__name__}: {email_exc}"
-                    )
-
-        except Exception as exc:
-
-            st.error(
-                "Subscription failed. "
-                f"{type(exc).__name__}: {exc}"
-            )
-
-
-    if subscription_cols[1].button(
-        "🔕 Unsubscribe",
-        width="stretch"
-    ):
-
-        try:
-
-            import re
-            from datetime import datetime, timezone
-            from supabase import create_client
-
-            clean_email = (
-                subscription_email
-                .strip()
-                .lower()
-            )
-
-            email_pattern = (
-                r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
-            )
-
-            if not re.match(
-                email_pattern,
-                clean_email
-            ):
-
-                st.error(
-                    "Please enter a valid email address."
-                )
-
-            else:
-
-                supabase_client = create_client(
-                    str(
-                        st.secrets[
-                            "SUPABASE_URL"
-                        ]
-                    ),
-                    str(
-                        st.secrets[
-                            "SUPABASE_SECRET_KEY"
-                        ]
-                    )
-                )
-
-                result = (
-                    supabase_client
-                    .table(
-                        "eaware_subscribers"
-                    )
-                    .update(
-                        {
-                            "active": False,
-                            "updated_at":
-                                datetime.now(
-                                    timezone.utc
-                                ).isoformat(),
-                        }
-                    )
-                    .eq(
-                        "email",
-                        clean_email
-                    )
-                    .execute()
-                )
-
-                if result.data:
-
-                    st.success(
-                        "✅ Unsubscribed successfully."
-                    )
-
-                    try:
-                        send_unsubscription_confirmation_email(
-                            clean_email
-                        )
+                    if result.data:
 
                         st.success(
-                            "📧 An unsubscription confirmation email "
-                            "has been sent."
+                            "✅ Unsubscribed successfully."
                         )
 
-                    except Exception as email_exc:
-                        st.warning(
-                            "The subscription was removed successfully, "
-                            "but the confirmation email could not be sent. "
-                            f"{type(email_exc).__name__}: {email_exc}"
+                        try:
+                            send_unsubscription_confirmation_email(
+                                clean_email
+                            )
+
+                            st.success(
+                                "📧 An unsubscription confirmation email "
+                                "has been sent."
+                            )
+
+                        except Exception as email_exc:
+                            st.warning(
+                                "The subscription was removed successfully, "
+                                "but the confirmation email could not be sent. "
+                                f"{type(email_exc).__name__}: {email_exc}"
+                            )
+
+                    else:
+
+                        st.info(
+                            "That email was not found in the "
+                            "subscriber list."
                         )
 
-                else:
+            except Exception as exc:
 
-                    st.info(
-                        "That email was not found in the "
-                        "subscriber list."
-                    )
-
-        except Exception as exc:
-
-            st.error(
-                "Unsubscribe failed. "
-                f"{type(exc).__name__}: {exc}"
-            )
+                st.error(
+                    "Unsubscribe failed. "
+                    f"{type(exc).__name__}: {exc}"
+                )
 
 
-st.info(
-    "📤 **Send Now** provides manual/demo delivery. "
-    "🔔 **Daily Advisory Subscription** enables scheduled prototype "
-    "delivery. Active subscribers are processed by the "
-    "scheduled 4:00 AM Peru backend."
-)
+    st.info(
+        "📤 **Send Now** provides manual/demo delivery. "
+        "🔔 **Daily Advisory Subscription** enables scheduled prototype "
+        "delivery. Active subscribers are processed by the "
+        "scheduled 4:00 AM Peru backend."
+    )
 
 
-st.caption(
-    "The displayed depth is GEBCO seafloor bathymetry at the "
-    "highest-HSI grid cell. E-AWARE does not currently predict "
-    "a validated anchoveta fishing-depth band."
-)
+    st.caption(
+        "The displayed depth is GEBCO seafloor bathymetry at the "
+        "highest-HSI grid cell. E-AWARE does not currently predict "
+        "a validated anchoveta fishing-depth band."
+    )
 
 
-# ============================================================
+    # ============================================================
 # TRANSPARENCY / STATUS
 # ============================================================
 st.subheader(
