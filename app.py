@@ -9289,11 +9289,12 @@ with st.expander(
         """
 **Training data**
 
-- 2,234 historical IMARPE records
-- 544 anchoveta detections
-- 1,690 non-detections
-- 20 historical surveys
-- Production dataset period: 1994–2010
+- Source: **IMARPE acoustic anchoveta surveys**
+- **2,234** modelling records
+- **544** anchoveta detections
+- **1,690** non-detections
+- **20** historical surveys
+- Production modelling period: **1994–2010**
 
 **Environmental inputs**
 
@@ -9741,7 +9742,7 @@ with st.expander("📤 Send current advisory by email", expanded=False):
     E-AWARE
     El Niño Adaptive Fisheries Intelligence
 
-    Decision-support research prototype.
+    Decision-support system.
     """
         )
 
@@ -9785,7 +9786,7 @@ with st.expander("📤 Send current advisory by email", expanded=False):
     E-AWARE
     El Niño Adaptive Fisheries Intelligence
 
-    Decision-support research prototype.
+    Decision-support system.
     """
         )
 
@@ -10134,10 +10135,11 @@ source_table = pd.DataFrame(
 
         {
             "Source":
-                "Repository-managed anchoveta observations",
+                "IMARPE acoustic anchoveta observations",
             "Use":
-                "Traceable fish-observation data for V2 pipeline validation "
-                "and, when scientifically suitable, future model training"
+                "Historical anchoveta detection/non-detection observations "
+                "used to train and retrospectively validate the E-AWARE "
+                "habitat model"
         },
     ]
 )
@@ -10212,7 +10214,7 @@ st.caption(
 )
 
 with st.expander(
-    "⚙️ E-AWARE Model & Data Limitations"
+    "⚠️ Limitations & Responsible Use"
 ):
 
     limitation_lines = [
@@ -10238,7 +10240,7 @@ st.caption(
     "E-AWARE | "
     "Literature HSI = primary habitat model | "
     "Conditional ML = experimental secondary layer | "
-    "Decision-support research prototype"
+    "Decision-support system"
 )
 
 st.caption(
