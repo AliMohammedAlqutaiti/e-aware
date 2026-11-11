@@ -8978,10 +8978,6 @@ the HSI a probability that anchoveta are present.
     )
 
 
-st.subheader(
-    "🧭 Predicted Suitable-Habitat Shift"
-)
-
 direction_text = "Unavailable"
 distance_text = "—"
 bearing_text = "—"
@@ -9096,88 +9092,183 @@ if len(
         )
     )
 
-cols = st.columns(
-    3
-)
+
+# ============================================================
+# HABITAT SHIFT SUMMARY
+# ============================================================
+
+st.subheader("🧭 72-Hour Habitat Shift")
+
+cols = st.columns(4)
 
 cols[0].metric(
-    "Suitable-Habitat Shift",
+    "Direction",
     direction_text
 )
 
 cols[1].metric(
-    "Centroid Shift",
+    "Estimated Shift",
     distance_text
 )
 
 cols[2].metric(
-    "Bearing",
-    bearing_text
+    "Coast Movement",
+    coastal_interpretation
 )
 
-st.markdown(
-    f"**Forecast Period:** {period_text}"
+cols[3].metric(
+    "Forecast Model",
+    forecast_operational_model
 )
 
 st.caption(
-    "The reported shift is movement of the HSI-weighted centroid of the "
-    "relatively highest-suitability cells, not movement of individual fish. "
-    "A large value can occur when relative habitat suitability redistributes "
-    "from one part of the study corridor to another over the forecast period."
+    f"Forecast period: {period_text}. "
+    "This represents movement of the centre of higher-suitability habitat, "
+    "not movement of individual anchoveta."
 )
 
-if (
-    start
-    and
-    end
+with st.expander(
+    "🧭 Shift calculation details",
+    expanded=False
 ):
-
-    cols = st.columns(
-        3
+    st.metric(
+        "Bearing",
+        bearing_text
     )
 
-    cols[0].metric(
-        "Start Distance from Coast",
-        (
-            f"{start['distance_coast_km']:.2f} km / "
-            f"{start['distance_coast_nm']:.2f} nm"
+    if start and end:
+        detail_cols = st.columns(2)
+
+        detail_cols[0].metric(
+            "Start Distance from Coast",
+            (
+                f"{start['distance_coast_km']:.2f} km / "
+                f"{start['distance_coast_nm']:.2f} nm"
+            )
         )
-    )
 
-    cols[1].metric(
-        (
-            f"+{forecast_hours} h Distance from Coast"
-            if forecast_hours is not None
-            else
-            "Future Distance from Coast"
-        ),
-        (
-            f"{end['distance_coast_km']:.2f} km / "
-            f"{end['distance_coast_nm']:.2f} nm"
+        detail_cols[1].metric(
+            "Forecast Distance from Coast",
+            (
+                f"{end['distance_coast_km']:.2f} km / "
+                f"{end['distance_coast_nm']:.2f} nm"
+            )
         )
+
+        st.write(
+            f"**Start habitat centre:** "
+            f"{start['lat']:.4f}, {start['lon']:.4f}"
+        )
+
+        st.write(
+            f"**Forecast habitat centre:** "
+            f"{end['lat']:.4f}, {end['lon']:.4f}"
+        )
+
+    st.caption(
+        "Bearing is measured clockwise from north: "
+        "0° = North, 90° = East, 180° = South and 270° = West."
     )
 
-    cols[2].metric(
-        "Interpretation",
-        coastal_interpretation
-    )
 
 st.subheader(
     (
-        f"📅 {forecast_hours}-Hour Habitat Forecast"
+        f"📅 {forecast_hours}-Hour Forecast"
         if forecast_hours is not None
         else
         "📅 Habitat Forecast"
     )
 )
 
-st.dataframe(
-    pd.DataFrame(
-        forecast_results
-    ),
-    width="stretch",
-    hide_index=True
-)
+forecast_display = pd.DataFrame(
+    forecast_results
+).copy()
+
+if forecast_display.empty:
+
+    st.info(
+        "No complete forecast records are available."
+    )
+
+else:
+
+    # -----------------------------------------------------
+    # CLEAN USER-FACING FORECAST
+    # -----------------------------------------------------
+
+    simple_forecast = pd.DataFrame()
+
+    if "Date" in forecast_display.columns:
+        simple_forecast["Date"] = (
+            pd.to_datetime(
+                forecast_display["Date"]
+            )
+            .dt.strftime("%d %b %Y")
+        )
+
+    if "Highest HSI" in forecast_display.columns:
+
+        simple_forecast["HSI"] = (
+            forecast_display["Highest HSI"]
+        )
+
+        simple_forecast["Suitability"] = (
+            forecast_display["Highest HSI"]
+            .apply(hsi_class)
+        )
+
+    if "Temperature °C" in forecast_display.columns:
+
+        simple_forecast["SST °C"] = (
+            forecast_display["Temperature °C"]
+        )
+
+    if "SST Anomaly °C" in forecast_display.columns:
+
+        simple_forecast["SST Anomaly °C"] = (
+            forecast_display["SST Anomaly °C"]
+        )
+
+    simple_forecast["Model"] = (
+        forecast_operational_model
+    )
+
+    st.dataframe(
+        simple_forecast,
+        width="stretch",
+        hide_index=True
+    )
+
+    st.caption(
+        "The forecast shows predicted changes in anchoveta habitat "
+        "suitability, not guaranteed fish locations."
+    )
+
+    # -----------------------------------------------------
+    # FULL SCIENTIFIC FORECAST
+    # -----------------------------------------------------
+
+    with st.expander(
+        "🔬 Technical forecast details",
+        expanded=False
+    ):
+
+        st.dataframe(
+            forecast_display,
+            width="stretch",
+            hide_index=True
+        )
+
+        st.caption(
+            f"Forecast model: {forecast_operational_model}. "
+            "The same operational habitat model is used across the "
+            "complete forecast horizon."
+        )
+
+        st.caption(
+            "Water Depth is GEBCO seafloor depth, not predicted fish depth. "
+            "Local Oxycline represents the depth of the oxygen-profile transition."
+        )
 
 
 # ============================================================
